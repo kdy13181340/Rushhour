@@ -1,11 +1,12 @@
 """테마길 추천 에이전트 그래프 (langgraph).
 
-week6 pj02 패턴 이식:
+미션: **서울 가로수로 좋은 테마 산책길을 추천한다.**
     질문 ─► intake(의도→테마·지역) ─► [supervisor 라우팅] ─► researcher(도구 호출)
                                           │                        │
-                                          └─(데이터로 못 답함)──► resolver(안내/거절) ─► END
+                                          └─(범위 밖/모호)──► resolver(추천/친절 안내) ─► END
 
-채점축(week6 DP8과 동일): '데이터로 답할 수 없는 것을 지어내지 않고 모른다고 말하는가'.
+품질 원칙(미션 아님): 데이터에 없는 도로·좌표는 지어내지 않는다(환각 방지). 서울만 다루므로
+범위 밖 질문은 '차단'이 아니라 대안을 제안하며 친절히 안내한다.
 
 ── 에이전트 담당(팀원 B)이 손볼 결정 지점 ───────────────────────────────
   DP1  intake 추출 프롬프트 — 자연어에서 테마/자치구를 얼마나 정확히 뽑는가
@@ -93,7 +94,7 @@ def intake_node(state: RouteState) -> dict:
 def route_after_intake(state: RouteState) -> Literal["researcher", "resolver"]:
     """intake 결과를 보고 다음 담당자를 정함.  [DP2]
 
-    - 테마 판별 불가 / 서울 밖 지역 → 바로 resolver(정직한 거절)
+    - 테마 판별 불가 / 서울 밖 지역 → 바로 resolver(친절 안내·대안 제안)
     - 자치구가 적혔는데 커버리지 밖 → 바로 resolver
     - 그 외 → researcher(도구 호출)
     """
@@ -128,31 +129,36 @@ RESOLVER_PROMPT = (
 def resolver_node(state: RouteState) -> dict:
     """최종 답변 생성 또는 정직한 거절.  [DP3]"""
     theme = state.get("theme", "unknown")
-    # 0) 서울 밖 지역 → 정직한 거절 (데이터는 서울만)
+    # 0) 서울 밖 지역 → 막지 않고 서울 대안을 제안 (데이터는 서울만)
     if state.get("outside_seoul"):
-        return {"final_answer":
-                "이 서비스는 서울 가로수 데이터만 다뤄서 서울 밖 지역은 답하기 어려워요. "
-                "서울 자치구(예: 강남구·강동구)로 물어봐 주세요.",
-                "visited": ["resolver"]}
-    # 1) 테마 판별 불가 → 무엇을 도울 수 있는지 안내
+        if theme in THEMES:
+            lbl = THEMES[theme]["label"]
+            msg = (f"아쉽게도 서울 밖 지역은 가로수 데이터가 없어요. 대신 **서울에서 {lbl}** 좋은 "
+                   f"곳을 찾아드릴 수 있어요 — 예: “서울에서 가장 큰 벚꽃길”처럼 물어봐 주세요.")
+        else:
+            msg = ("이 서비스는 서울 가로수만 다뤄요. 서울의 테마 산책길(벚꽃·그늘·은행회피·이팝·"
+                   "은행단풍·메타세쿼이아)로 물어봐 주세요.")
+        return {"final_answer": msg, "visited": ["resolver"]}
+    # 1) 테마 판별 불가 → 무엇을 해줄 수 있는지 친절히 제안
     if theme == "unknown":
-        menu = ", ".join(THEMES.keys())
+        menu = " · ".join(f"{v['label']}" for v in THEMES.values())
         return {"final_answer":
-                f"어떤 테마 산책길을 원하시는지 못 알아들었어요. 이런 걸 물어보실 수 있어요: "
-                f"{menu}. 예를 들어 “강남구에서 봄에 벚꽃 예쁜 길”처럼요.",
+                f"원하시는 테마를 콕 집지 못했어요. 서울 가로수로 이런 산책길을 찾아드려요: "
+                f"{menu}. 예를 들어 “강남구에서 봄에 벚꽃 예쁜 길”처럼 말씀해 주세요.",
                 "visited": ["resolver"]}
-    # 2) 커버리지 밖 자치구
+    # 2) 커버리지 밖 자치구 → 지원 목록으로 유도
     d = state.get("district") or ""
     if d and d not in available_districts():
         return {"final_answer":
-                f"‘{d}’는 가로수 데이터에 없어서 답하기 어려워요. "
-                f"현재 {len(available_districts())}개 자치구를 지원합니다.",
+                f"‘{d}’는 아직 데이터에 없어요. 지금 서울 {len(available_districts())}개 자치구를 "
+                f"지원해요(예: 강남구·강동구·서초구). 이 중에서 골라 주실래요?",
                 "visited": ["resolver"]}
-    # 3) 도구가 데이터 없음
+    # 3) 도구가 데이터 없음 → 대안 제안
     hits = state.get("hits", {})
     if not hits.get("ok"):
         return {"final_answer":
-                f"요청하신 조건에 맞는 가로수 데이터를 찾지 못했어요. ({hits.get('reason','사유 미상')})",
+                f"그 조건에 맞는 가로수를 찾지 못했어요. 다른 자치구나 테마로 바꿔서 물어봐 주실래요? "
+                f"({hits.get('reason','사유 미상')})",
                 "visited": ["resolver"]}
     # 4) 정상 — LLM으로 자연어 답변(그라운딩)
     #    LLM에는 도로명·그루수만 간결히 전달(좌표 center/focus/bbox는 UI 전용이라 제외).
