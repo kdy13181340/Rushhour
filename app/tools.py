@@ -4,48 +4,60 @@
 명확히 둔다(ex02). 지금은 '노선(도로) 단위 집계'로 동작하는 MVP 구현이며,
 실제 좌표 기반 경로탐색은 팀원 A/확장 단계에서 osmnx로 교체한다.
 
-데이터: /workspace/Rushhour/data/seoul_tree_data.csv (cp949)
-컬럼: 자치구 · 노선 · 수종 · 도로명 주소 · 지번 주소 · 좌표(경도) · 좌표(위도)
+데이터 로드 순서 [BE_DESIGN C2·C5·C6]:
+  1) TREE_PARQUET env  2) data/processed/seoul_trees.parquet (scripts/01 산출물)
+  3) TREE_CSV env      4) data/seoul_tree_data.csv (cp949) — 같은 정제(clean)를 즉석 적용
+경로는 저장소 루트 기준 상대경로라 clone 위치가 달라도 동작한다.
+컬럼(정제 후): 구 · 노선 · 수종 · 도로명 · 지번 · 경도 · 위도 · 관리기관
 """
 
 import functools
 import os
+import sys
+from pathlib import Path
 
 import pandas as pd
 from langchain_core.tools import tool
 
 from themes import THEMES
 
-DATA_PATH = os.environ.get(
-    "TREE_CSV", "/workspace/Rushhour/data/seoul_tree_data.csv"
-)
+ROOT = Path(__file__).resolve().parents[1]
+PARQUET_PATH = Path(os.environ.get("TREE_PARQUET", ROOT / "data" / "processed" / "seoul_trees.parquet"))
+CSV_PATH = Path(os.environ.get("TREE_CSV", ROOT / "data" / "seoul_tree_data.csv"))
 
 
 @functools.lru_cache(maxsize=1)
 def _load() -> pd.DataFrame:
-    """CSV를 한 번만 읽어 캐시. 컬럼명을 짧게 표준화하고 좌표를 숫자화."""
-    df = pd.read_csv(DATA_PATH, encoding="cp949")
-    df = df.rename(
-        columns={
-            "자치구": "구",
-            "노선": "노선",
-            "수종": "수종",
-            "도로명 주소": "도로명",
-            "좌표(경도)": "경도",
-            "좌표(위도)": "위도",
-        }
-    )
-    for c in ("구", "노선", "수종"):
-        df[c] = df[c].astype(str).str.strip()
-    df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
-    df["위도"] = pd.to_numeric(df["위도"], errors="coerce")
-    return df.dropna(subset=["경도", "위도"])
+    """데이터를 한 번만 읽어 캐시. Parquet 우선, 없으면 CSV를 읽어 같은 정제를 적용."""
+    if PARQUET_PATH.exists():
+        return pd.read_parquet(PARQUET_PATH)
+    if not CSV_PATH.exists():
+        raise FileNotFoundError(
+            f"가로수 데이터 없음: {PARQUET_PATH} / {CSV_PATH}. "
+            "python scripts/01_csv_to_parquet.py 를 먼저 실행할 것.")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from importlib import import_module
+    clean = import_module("01_csv_to_parquet").clean
+    return clean(pd.read_csv(CSV_PATH, encoding="cp949"))
+
+
+def data_source() -> str:
+    """헬스체크용 — 지금 어떤 파일을 쓰는지."""
+    return str(PARQUET_PATH if PARQUET_PATH.exists() else CSV_PATH)
 
 
 @functools.lru_cache(maxsize=1)
 def available_districts() -> tuple[str, ...]:
-    """데이터에 존재하는 자치구 목록(커버리지). '모르면 모른다'의 근거."""
-    return tuple(sorted(_load()["구"].unique()))
+    """데이터에 존재하는 자치구 목록(커버리지). '모르면 모른다'의 근거. 정제 후 25개."""
+    return tuple(sorted(_load()["구"].dropna().unique()))
+
+
+def match_district(text: str) -> str:
+    """자유 텍스트에서 자치구 이름을 찾는다(규칙 intake·폴백용). 없으면 ''."""
+    for gu in available_districts():
+        if gu in text or gu[:-1] in text:      # '강남구' 또는 '강남'
+            return gu
+    return ""
 
 
 def _hotspot_focus(seg, cell: float = 0.004) -> dict:
@@ -78,8 +90,6 @@ def find_theme_streets(theme: str, district: str = "", top_only: bool = False) -
 
     Returns:
         {ok, theme, mode, season, district, streets:[{구,노선,그루수,center}], focus, note}
-        - focus.center/bbox는 지도 이동·줌 대상. 자치구 미지정이거나 top_only면
-          1등 도로로 좁혀 서울 전체가 잡히지 않게 한다.
         - mode가 'prefer'면 streets는 '걷기 좋은 추천 길',
           'avoid'면 '피하는 게 좋은 길'이다.
         - 데이터에 없는 테마/자치구면 ok=False 와 사유·후보를 돌려준다.
@@ -101,6 +111,7 @@ def find_theme_streets(theme: str, district: str = "", top_only: bool = False) -
         return {"ok": False, "reason": "해당 지역에 이 테마의 가로수 데이터가 없음",
                 "theme": theme, "district": district or "서울 전체"}
 
+    # 노선 결측 행은 groupby에서 자동 제외됨(좌표 기반 경로로 가면 다시 살아남)
     ranked = (
         hit.groupby(["구", "노선"]).size()
         .sort_values(ascending=False).reset_index(name="그루수")
@@ -110,7 +121,7 @@ def find_theme_streets(theme: str, district: str = "", top_only: bool = False) -
     for _, r in top.iterrows():
         seg = hit[(hit["구"] == r["구"]) & (hit["노선"] == r["노선"])]
         streets.append({
-            "구": r["구"], "노선": r["노선"], "그루수": int(r["그루수"]),
+            "구": str(r["구"]), "노선": str(r["노선"]), "그루수": int(r["그루수"]),
             # 지도 이동용 중심좌표(가벼움). 마커 점 배열은 map_api.street_points()로 UI가 따로 가져감.
             "center": [round(float(seg["위도"].mean()), 6), round(float(seg["경도"].mean()), 6)],
         })
@@ -149,7 +160,8 @@ TOOLS = [find_theme_streets, check_coverage]
 
 if __name__ == "__main__":
     # 도구 단독 점검
+    print("데이터:", data_source())
     print("커버리지:", check_coverage.invoke({})["count"], "개 자치구")
     print(find_theme_streets.invoke({"theme": "벚꽃", "district": "강동구"}))
-    print(find_theme_streets.invoke({"theme": "은행회피", "district": "강동구"}))
+    print(find_theme_streets.invoke({"theme": "은행단풍", "district": "종로구"})["streets"][:2])
     print(find_theme_streets.invoke({"theme": "벚꽃", "district": "없는구"}))

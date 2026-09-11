@@ -1,28 +1,33 @@
-"""서울 가로수 테마길 — Streamlit UI 골격 (팀원 C 담당).
+"""서울 가로수 테마길 — Streamlit UI (팀원 C 담당).  [BE_DESIGN C4: API 클라이언트]
 
-지도(pydeck) + 채팅. 채팅으로 지역·계절·취향을 말하면 에이전트가 테마길을 추천하고,
-지도가 추천 위치로 이동하며 해당 가로수를 점으로 표시한다.
+지도(pydeck) + 채팅. UI는 그래프를 직접 import하지 않고 FastAPI(backend/main.py)만 부른다.
+  - 채팅       → POST /chat (SSE) : 노드 이벤트를 상태줄에 흘리고 final로 지도 갱신
+  - 빠른 추천  → POST /tools/find_theme_streets : LLM 없이 도구만
+  - 마커 좌표  → GET  /map/street_points
+  - 첫 화면    → GET  /health : 모델 서버가 없으면 '규칙 모드' 배지
 
 실행:
-    bash /workspace/course/week5/start_agent_server.sh          # 채팅(LLM)용 8080
-    cd /workspace/Rushhour/app
-    AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_streamlit.py
-
-메모: 사이드바의 '빠른 추천'은 LLM 없이 도구만 호출하므로 8080이 없어도 지도 데모가 된다.
-      채팅창은 에이전트(intake→researcher→resolver) 전체를 태우므로 8080/API가 필요하다.
+    # 1) 백엔드
+    AGENT_CHANNEL=none uvicorn backend.main:app --port 8000        # 서버 없이 (규칙 모드)
+    AGENT_CHANNEL=local uvicorn backend.main:app --port 8000       # 8080 모델 서버 있을 때
+    # 2) UI
+    RUSHHOUR_API=http://localhost:8000 python -m streamlit run app/app_streamlit.py --server.port 9000
 
 ── C가 손볼 곳(TODO) ────────────────────────────────────────────────
   TODO-UI1  지도 스타일·마커 크기·범례 디자인 다듬기
   TODO-UI2  추천 도로를 클릭하면 그 도로만 확대(현재는 focus 전체 뷰)
-  TODO-UI3  langfuse 트레이스 연결(week8 ext01) — 대화별 추적
+  TODO-UI3  겨울 조명 스팟(final.light_spots) 마커 레이어 (C7 find_light_spots 이후)
 """
 
-import streamlit as st
-import pydeck as pdk
+import json
+import os
+import uuid
 
-from themes import THEMES
-from tools import find_theme_streets, available_districts
-from map_api import street_points
+import httpx
+import pydeck as pdk
+import streamlit as st
+
+API = os.environ.get("RUSHHOUR_API", "http://localhost:8000").rstrip("/")
 
 # 테마 → 지도 마커 색 (RGB). themes.py의 순서와 맞춤.
 THEME_RGB = {
@@ -34,15 +39,58 @@ SEOUL_CENTER = [37.5665, 126.9780]
 st.set_page_config(page_title="서울 가로수 테마길", page_icon="🌳", layout="wide")
 
 
-@st.cache_resource
-def get_app():
-    """에이전트 그래프를 한 번만 컴파일해 캐시."""
-    from graph import build_graph
-    return build_graph()
+# ── API 클라이언트 ────────────────────────────────────────────────────────────
+@st.cache_data(ttl=10)
+def api_health() -> dict | None:
+    try:
+        return httpx.get(f"{API}/health", timeout=3).json()
+    except Exception:  # noqa: BLE001
+        return None
 
 
+@st.cache_data(ttl=600)
+def api_meta() -> tuple[dict, list[str]]:
+    themes = httpx.get(f"{API}/themes", timeout=10).json()
+    dists = httpx.get(f"{API}/districts", timeout=10).json()["districts"]
+    return themes, dists
+
+
+@st.cache_data(ttl=600)
+def api_points(gu: str, line: str, theme: str) -> list[list[float]]:
+    r = httpx.get(f"{API}/map/street_points", params={"gu": gu, "line": line, "theme": theme}, timeout=30)
+    return r.json()["points"]
+
+
+def api_quick(theme: str, district: str) -> dict:
+    return httpx.post(f"{API}/tools/find_theme_streets",
+                      json={"theme": theme, "district": district}, timeout=60).json()
+
+
+def api_chat(message: str, thread_id: str, on_node=None) -> dict:
+    """SSE를 읽어 final 이벤트를 돌려준다. 노드 이벤트마다 on_node(name)."""
+    final = None
+    with httpx.stream("POST", f"{API}/chat", json={"message": message, "thread_id": thread_id},
+                      timeout=httpx.Timeout(120, connect=5)) as r:
+        r.raise_for_status()
+        event = None
+        for line in r.iter_lines():
+            if line.startswith("event: "):
+                event = line[7:]
+            elif line.startswith("data: "):
+                data = json.loads(line[6:])
+                if event == "node" and on_node:
+                    on_node(data["name"])
+                elif event == "final":
+                    final = data
+                elif event == "error":
+                    raise RuntimeError(f"{data['type']}: {data['message']}")
+    if final is None:
+        raise RuntimeError("final 이벤트 없음")
+    return final
+
+
+# ── 지도 ─────────────────────────────────────────────────────────────────────
 def _zoom_for(bbox) -> float:
-    """bbox 크기로 대략적 줌 레벨 산정."""
     span = max(bbox[1][0] - bbox[0][0], bbox[1][1] - bbox[0][1])
     if span > 0.15:
         return 11.0
@@ -55,13 +103,13 @@ def _zoom_for(bbox) -> float:
 
 def set_map_from_hits(hits: dict):
     """도구 결과(hits)로 지도 상태(중심·줌·마커)를 갱신."""
-    if not hits.get("ok"):
+    if not hits or not hits.get("ok"):
         return
     theme = hits["theme"]
     rgb = THEME_RGB.get(theme, [120, 120, 120])
     pts = []
     for s in hits["streets"]:
-        for lat, lon in street_points(s["구"], s["노선"], theme):
+        for lat, lon in api_points(s["구"], s["노선"], theme):
             pts.append({"lat": lat, "lon": lon})
     focus = hits.get("focus", {})
     center = focus.get("center", SEOUL_CENTER)
@@ -81,40 +129,52 @@ def render_map():
             get_radius=22, radius_min_pixels=2, radius_max_pixels=6, pickable=False,
         ))
     view = pdk.ViewState(latitude=center[0], longitude=center[1], zoom=zoom)
-    # map_provider carto → Mapbox 토큰 없이 기본 지도. (토큰 문제 시 map_style=None 로 폴백)
     st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view,
                              map_provider="carto", map_style="light"),
                     use_container_width=True)
 
 
 # ── 레이아웃 ──────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("🌳 테마길")
-    st.caption("채팅으로 물어보거나, 아래에서 바로 골라보세요.")
-    st.subheader("빠른 추천 (LLM 불필요)")
-    tkey = st.selectbox("테마", list(THEMES.keys()),
-                        format_func=lambda k: f"{k} · {THEMES[k]['label']}")
-    gu = st.selectbox("자치구", ["(서울 전체)"] + list(available_districts()))
-    if st.button("이 조건으로 추천", use_container_width=True):
-        district = "" if gu == "(서울 전체)" else gu
-        hits = find_theme_streets.invoke({"theme": tkey, "district": district})
-        set_map_from_hits(hits)
-        if hits.get("ok"):
-            top = "、".join(f"{s['노선']}({s['그루수']})" for s in hits["streets"][:3])
-            ans = f"**{THEMES[tkey]['label']}** ({hits['district']}) — 추천 도로: {top}. {hits['note']}"
-        else:
-            ans = f"데이터를 찾지 못했어요: {hits.get('reason','')}"
-        st.session_state.messages.append({"role": "assistant", "content": ans})
-    st.divider()
-    st.caption(f"커버리지: {len(available_districts())}개 자치구 · "
-               "은행 열매 회피는 암나무 일부 라벨 기반 근사")
+health = api_health()
+if health is None:
+    st.error(f"백엔드({API})에 연결할 수 없어요. `uvicorn backend.main:app --port 8000` 을 먼저 실행하세요.")
+    st.stop()
+themes, districts = api_meta()
 
-st.title("서울 가로수 테마길")
-st.caption("계절·취향을 말하면 가로수 산책길을 추천하고 지도를 그 위치로 옮겨드려요.")
-
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant",
         "content": "안녕하세요! 예: “강남구에서 봄에 벚꽃 예쁜 길”, “가을에 냄새 안 나게 강동구 산책”"}]
+
+with st.sidebar:
+    st.header("🌳 테마길")
+    mode = health["chat_mode"]
+    if mode == "llm":
+        st.success(f"채팅: LLM 모드 ({health['llm'].get('model') or health['llm']['channel']})")
+    else:
+        st.warning("채팅: 규칙 모드 (모델 서버 없음 — 키워드로 테마를 잡고 템플릿으로 답해요)")
+    st.caption("채팅으로 물어보거나, 아래에서 바로 골라보세요.")
+    st.subheader("빠른 추천 (LLM 불필요)")
+    tkey = st.selectbox("테마", list(themes.keys()),
+                        format_func=lambda k: f"{k} · {themes[k]['label']}")
+    gu = st.selectbox("자치구", ["(서울 전체)"] + districts)
+    if st.button("이 조건으로 추천", use_container_width=True):
+        district = "" if gu == "(서울 전체)" else gu
+        hits = api_quick(tkey, district)
+        set_map_from_hits(hits)
+        if hits.get("ok"):
+            top = "、".join(f"{s['노선']}({s['그루수']})" for s in hits["streets"][:3])
+            ans = f"**{themes[tkey]['label']}** ({hits['district']}) — 추천 도로: {top}. {hits['note']}"
+        else:
+            ans = f"데이터를 찾지 못했어요: {hits.get('reason', '')}"
+        st.session_state.messages.append({"role": "assistant", "content": ans})
+    st.divider()
+    st.caption(f"커버리지: {len(districts)}개 자치구 · 은행 열매 회피는 암나무 일부 라벨 기반 근사")
+    st.caption(f"thread: `{st.session_state.thread_id[:8]}`")
+
+st.title("서울 가로수 테마길")
+st.caption("계절·취향을 말하면 가로수 산책길을 추천하고 지도를 그 위치로 옮겨드려요.")
 
 col_map, col_chat = st.columns([3, 2], gap="medium")
 
@@ -128,14 +188,19 @@ with col_chat:
     if q := st.chat_input("어떤 산책길을 원하세요?"):
         st.session_state.messages.append({"role": "user", "content": q})
         box.chat_message("user").write(q)
+        status = box.status("에이전트 실행 중…", expanded=False)
         try:
-            out = get_app().invoke({"question": q})
-            ans = out.get("final_answer", "(답변 없음)")
-            if out.get("hits"):
-                set_map_from_hits(out["hits"])
-        except Exception as exc:  # 보통 8080 미기동 / API 키 미설정
-            ans = (f"에이전트 호출 실패: {type(exc).__name__}. "
-                   "로컬 서버(8080)를 켜거나 사이드바 ‘빠른 추천’을 써보세요.")
+            final = api_chat(q, st.session_state.thread_id,
+                             on_node=lambda n: status.write(f"→ {n}"))
+            status.update(label=f"완료 · {final.get('elapsed_sec')}s · "
+                                f"intake={final.get('intake_mode')} resolver={final.get('resolver_mode')}",
+                          state="complete")
+            ans = final.get("final_answer") or "(답변 없음 — 울타리 종료)"
+            if final.get("hits"):
+                set_map_from_hits(final["hits"])
+        except Exception as exc:  # noqa: BLE001
+            status.update(label="실패", state="error")
+            ans = f"에이전트 호출 실패: {exc}. 사이드바 ‘빠른 추천’을 써보세요."
         st.session_state.messages.append({"role": "assistant", "content": ans})
         box.chat_message("assistant").write(ans)
         st.rerun()

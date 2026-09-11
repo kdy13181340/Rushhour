@@ -8,10 +8,12 @@
 ## 구조
 
 ```
-질문 ─► intake ─► [supervisor 라우팅] ─► researcher(도구) ─► resolver ─► 답변
-        (테마·자치구 추출)     │                                  ▲
-                              └──(범위 밖/모호)──────────────────┘  친절 안내·대안 제안
+질문 ─► supervisor ─(규칙 라우터: 울타리 → 빈 칸 순서)─► season → intake → researcher → [light] → resolver ─► END
+            ▲                                            (코드)  (LLM│규칙)  (도구)     (겨울)   (LLM│템플릿)
+            └──────────── 담당자가 끝나면 되돌아옴 ───────────┘
+테마 판별불가 / 커버리지 밖 / 서울 밖 → 도구를 부르지 않고 resolver로 (친절 안내·대안 제안)
 ```
+자세한 그림과 결정은 `../docs/BE_DESIGN.md` §1.
 
 | 파일 | 역할 | 담당 |
 |---|---|---|
@@ -28,8 +30,9 @@
 # 1) 로컬 에이전트 서버(코스 8080) 기동
 bash /workspace/course/week5/start_agent_server.sh
 # 2) 그래프를 샘플 질의로 시험
-cd /workspace/Rushhour/app
-AGENT_CHANNEL=local /workspace/course/.venv/bin/python graph.py
+cd <repo>
+AGENT_CHANNEL=none /root/venvs/rushhour/bin/python app/graph.py   # 서버 없이
+AGENT_CHANNEL=local /root/venvs/rushhour/bin/python app/graph.py  # 8080 있을 때
 ```
 
 API로 돌리려면: `AGENT_CHANNEL=gemini GEMINI_API_KEY=... python graph.py`
@@ -59,7 +62,7 @@ LLM 경로(intake 추출·resolver 문장 생성)는 8080 서버 또는 API 키�
 
 ```bash
 bash /workspace/course/week5/start_agent_server.sh    # 채팅용 8080
-cd /workspace/Rushhour/app
+cd <repo>
 AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_streamlit.py
 ```
 사이드바 ‘빠른 추천’은 LLM 없이 도구만 호출 → 8080 없이도 지도 데모 가능. 채팅창은 에이전트 전체 경로 사용.
@@ -81,11 +84,7 @@ def search_places(query: str, k: int = 5) -> list[dict]:
 
 - **A(데이터)**: `tools.py`의 두 도구 시그니처는 고정. 내부 구현을 노선 단위 집계 →
   좌표 기반 경로(osmnx)로 교체해도 에이전트는 그대로 동작.
-- **C(UI)**: `graph.build_graph()` + `run_one(app, 질문)` 호출 →
-  `out["final_answer"]`, `out["hits"]["streets"]`(지도 마커용) 사용.
-```python
-from graph import build_graph, run_one
-app = build_graph()
-out = run_one(app, "강남구 봄 벚꽃길")
-# out["final_answer"], out["hits"]["streets"]
-```
+- **C(UI)**: 그래프를 직접 import하지 않고 `backend/main.py`의 API를 부른다.
+  `POST /chat`(SSE) → `final` 이벤트의 `final_answer`·`hits["streets"]`,
+  `POST /tools/find_theme_streets`(빠른 추천), `GET /map/street_points`(마커).
+- **CLI/테스트**: `graph.build_graph()` + `run_one(app, 질문)`은 그대로 유효.
