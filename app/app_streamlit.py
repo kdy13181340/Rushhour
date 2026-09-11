@@ -147,34 +147,17 @@ if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant",
         "content": "안녕하세요! 예: “강남구에서 봄에 벚꽃 예쁜 길”, “가을에 냄새 안 나게 강동구 산책”"}]
 
-with st.sidebar:
-    st.header("🌳 테마길")
-    mode = health["chat_mode"]
-    if mode == "llm":
-        st.success(f"채팅: LLM 모드 ({health['llm'].get('model') or health['llm']['channel']})")
-    else:
-        st.warning("채팅: 규칙 모드 (모델 서버 없음 — 키워드로 테마를 잡고 템플릿으로 답해요)")
-    st.caption("채팅으로 물어보거나, 아래에서 바로 골라보세요.")
-    st.subheader("빠른 추천 (LLM 불필요)")
-    tkey = st.selectbox("테마", list(themes.keys()),
-                        format_func=lambda k: f"{k} · {themes[k]['label']}")
-    gu = st.selectbox("자치구", ["(서울 전체)"] + districts)
-    if st.button("이 조건으로 추천", use_container_width=True):
-        district = "" if gu == "(서울 전체)" else gu
-        hits = api_quick(tkey, district)
-        set_map_from_hits(hits)
-        if hits.get("ok"):
-            top = "、".join(f"{s['노선']}({s['그루수']})" for s in hits["streets"][:3])
-            ans = f"**{themes[tkey]['label']}** ({hits['district']}) — 추천 도로: {top}. {hits['note']}"
-        else:
-            ans = f"데이터를 찾지 못했어요: {hits.get('reason', '')}"
-        st.session_state.messages.append({"role": "assistant", "content": ans})
-    st.divider()
-    st.caption(f"커버리지: {len(districts)}개 자치구 · 은행 열매 회피는 암나무 일부 라벨 기반 근사")
-    st.caption(f"thread: `{st.session_state.thread_id[:8]}`")
-
+# 채팅 전용 레이아웃 — 사이드바 없음. 모드 배지는 상단에.
 st.title("서울 가로수 테마길")
-st.caption("계절·취향을 말하면 가로수 산책길을 추천하고 지도를 그 위치로 옮겨드려요.")
+mode = health["chat_mode"]
+if mode == "llm":
+    st.success(f"채팅: LLM 모드 ({health['llm'].get('model') or health['llm']['channel']}) · "
+               f"서울 {len(districts)}개 자치구")
+else:
+    st.warning(f"채팅: 규칙 모드 (모델 서버 없음 — 키워드로 테마를 잡고 템플릿으로 답해요) · "
+               f"서울 {len(districts)}개 자치구")
+st.caption("계절·취향을 말하면 가로수 산책길을 추천하고 지도를 그 위치로 옮겨드려요. "
+           "예) “강남구에서 송파구 가는 길 벚꽃길”, “서울에서 가장 큰 벚꽃길”")
 
 col_map, col_chat = st.columns([3, 2], gap="medium")
 
@@ -200,7 +183,7 @@ with col_chat:
                 set_map_from_hits(final["hits"])
         except Exception as exc:  # noqa: BLE001
             status.update(label="실패", state="error")
-            ans = f"에이전트 호출 실패: {exc}. 사이드바 ‘빠른 추천’을 써보세요."
+            ans = f"에이전트 호출 실패: {exc}. 잠시 후 다시 시도해 주세요."
         st.session_state.messages.append({"role": "assistant", "content": ans})
         box.chat_message("assistant").write(ans)
         st.rerun()
