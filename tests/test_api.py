@@ -38,6 +38,17 @@ def test_meta(client):
     assert client.get("/districts").json()["count"] == 25
 
 
+def test_leaflet_ui_shell_and_dtos(client):
+    """develop2에서 이식한 Leaflet 화면은 정본 도구 결과를 UI DTO로만 소비한다."""
+    shell = client.get("/")
+    assert shell.status_code == 200 and "WALK SEOUL" in shell.text
+    overview = client.get("/ui/overview").json()
+    assert overview["totals"]["districts"] == 25 and len(overview["themes"]) == 6
+    assert all(t["paths"] and not t["points"] for t in overview["themes"])
+    detail = client.get(f"/ui/theme/{overview['themes'][0]['id']}").json()
+    assert detail["points"] and detail["streets"]
+
+
 def test_tool_endpoint_no_llm(client):
     r = client.post("/tools/find_theme_streets", json={"theme": "벚꽃", "district": "강동구"}).json()
     assert r["ok"] and r["streets"][0]["노선"] == "아리수로"
@@ -69,6 +80,7 @@ def test_chat_sse_stream_and_thread(client):
                      "researcher", "supervisor", "resolver"]
     final = evs[-1][1]
     assert final["verdict"] == "match" and final["hits"]["ok"]
+    assert final["ui_routes"] and final["ui_routes"][0]["points"]
     # 체크포인트로 스레드 복구
     t = client.get("/threads/t-1").json()
     assert t["state"]["theme"] == "벚꽃" and t["next"] == []

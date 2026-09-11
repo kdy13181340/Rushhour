@@ -27,6 +27,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,7 @@ from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_mode
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
 from backend.trace import make_tracer                  # noqa: E402
+from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload  # noqa: E402
 
 CHECKPOINT_PATH = Path(os.environ.get("CHECKPOINT_DB", ROOT / "data" / "checkpoints.sqlite"))
 STATE = {}
@@ -162,6 +164,23 @@ def map_street_points(gu: str, line: str, theme: str, limit: int = 1000):
     return {"points": street_points(gu, line, theme, limit=limit)}
 
 
+# ── Leaflet UI 읽기 모델 ─────────────────────────────────────────────────────
+@app.get("/ui/overview")
+def ui_overview():
+    return overview_payload()
+
+
+@app.get("/ui/theme/{theme_id}")
+def ui_theme(theme_id: str, district: str = ""):
+    theme = BY_ID.get(theme_id)
+    if theme is None:
+        raise HTTPException(404, "모르는 UI 테마")
+    payload = theme_payload(theme, district, include_points=True)
+    if payload is None:
+        raise HTTPException(404, "해당 조건의 가로수 데이터 없음")
+    return payload
+
+
 # ── 채팅 (SSE) ──────────────────────────────────────────────────────────────
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=500)
@@ -207,6 +226,8 @@ def chat(body: ChatIn):
                     yield _sse("node", {"name": node, "patch": slim})
             snap = graph.get_state(config)
             final = {k: snap.values.get(k) for k in FINAL_KEYS}
+            # Leaflet UI는 기존 hits 원본을 직접 해석하지 않는다. UI DTO만 추가한다.
+            final["ui_routes"] = result_routes(final)
             final["elapsed_sec"] = round(time.time() - t0, 2)
             tracer.event("result", {"thread_id": thread_id, "verdict": final["verdict"],
                                     "theme": final["theme"], "intake_mode": final["intake_mode"],
@@ -231,3 +252,8 @@ def get_thread(thread_id: str):
     return {"thread_id": thread_id, "next": list(snap.next),
             "state": {k: snap.values.get(k) for k in FINAL_KEYS}}
 
+
+# API 라우트를 모두 등록한 뒤 정적 화면을 마지막에 붙인다.
+WEB_DIR = ROOT / "web"
+if WEB_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
