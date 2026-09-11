@@ -93,6 +93,20 @@ def test_e2e_superlative_uses_top_only(app):
     assert out["hits"]["focus"]["primary"]["노선"] == out["hits"]["streets"][0]["노선"]
 
 
+def test_rule_intake_route_extracts_origin_dest():
+    r = rule_intake("강남구에서 송파구 가는 길 벚꽃", "spring")
+    assert (r["origin"], r["dest"], r["theme"]) == ("강남구", "송파구", "벚꽃")
+    # 경로 단서 없이 자치구 하나면 origin/dest 비움
+    assert rule_intake("강남구 벚꽃길", "spring")["origin"] == ""
+
+
+def test_e2e_route_visits_route_node(app):
+    out = run_one(app, "강남구에서 송파구 가는 길 벚꽃길")
+    assert "route" in out["visited"] and out["hits"]["kind"] == "route"
+    assert out["origin"] == "강남구" and out["dest"] == "송파구"
+    assert "강남구" in out["final_answer"] and "송파구" in out["final_answer"]
+
+
 def test_e2e_unknown_intent_skips_tools(app):
     out = run_one(app, "오늘 날씨 어때?")
     assert out["verdict"] == "unknown_intent" and "hits" not in out
