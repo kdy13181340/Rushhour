@@ -114,7 +114,10 @@ def set_map_from_hits(hits: dict):
     focus = hits.get("focus", {})
     center = focus.get("center", SEOUL_CENTER)
     zoom = _zoom_for(focus["bbox"]) if focus.get("bbox") else 11.0
-    st.session_state.map = {"points": pts, "rgb": rgb, "center": center, "zoom": zoom}
+    # 경로(route) 결과면 출발→도착 선(corridor.line)도 그린다
+    line = hits.get("corridor", {}).get("line")
+    st.session_state.map = {"points": pts, "rgb": rgb, "center": center,
+                            "zoom": zoom, "line": line}
 
 
 def render_map():
@@ -122,6 +125,21 @@ def render_map():
     center = m["center"] if m else SEOUL_CENTER
     zoom = m["zoom"] if m else 10.5
     layers = []
+    if m and m.get("line"):
+        # corridor.line = [[lat,lon],[lat,lon]] → PathLayer는 [lon,lat] 순서
+        path = [[p[1], p[0]] for p in m["line"]]
+        layers.append(pdk.Layer(
+            "PathLayer", data=[{"path": path}], get_path="path",
+            get_color=[90, 90, 90], get_width=5, width_min_pixels=3,
+        ))
+        # 출발(초록)·도착(빨강) 지점 마커
+        ends = [{"lon": path[0][0], "lat": path[0][1], "c": [46, 139, 87]},
+                {"lon": path[1][0], "lat": path[1][1], "c": [214, 69, 65]}]
+        layers.append(pdk.Layer(
+            "ScatterplotLayer", data=ends, get_position="[lon, lat]",
+            get_fill_color="c", get_radius=80, radius_min_pixels=6, radius_max_pixels=11,
+            stroked=True, get_line_color=[255, 255, 255], line_width_min_pixels=2,
+        ))
     if m and m["points"]:
         layers.append(pdk.Layer(
             "ScatterplotLayer", data=m["points"],
