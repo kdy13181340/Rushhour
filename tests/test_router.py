@@ -164,6 +164,27 @@ def test_new_turn_input_resets_thread_state():
     assert c["visited"].count("supervisor") == 5
 
 
+def test_new_turn_input_clears_route_fields():
+    """경로 질문 다음의 일반 질문 — 이전 턴의 origin/dest가 남아 route로 가면 안 된다(DP13 × route 분기)."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    app = build_graph(checkpointer=InMemorySaver())
+    cfg = {"configurable": {"thread_id": "t-route"}}
+    a = app.invoke(G.new_turn_input("강남구에서 송파구 가는 길 벚꽃길"), config=cfg)
+    assert "route" in a["visited"] and (a["origin"], a["dest"]) == ("강남구", "송파구")
+    b = app.invoke(G.new_turn_input("서초구 여름 그늘길"), config=cfg)
+    assert "route" not in b["visited"] and b["origin"] == "" and b["hits"]["district"] == "서초구"
+
+
+def test_e2e_route_tool_exception_falls_back_to_no_data(app, monkeypatch):
+    import types
+
+    def boom(args):
+        raise RuntimeError("테스트: 경로 도구 실패")
+    monkeypatch.setattr(G, "route_theme_streets", types.SimpleNamespace(invoke=boom))
+    out = run_one(app, "강남구에서 송파구 가는 길 벚꽃길")
+    assert out["verdict"] == "no_data" and out["hits"]["tool_error"] == "RuntimeError"
+
+
 def test_e2e_fence_terminates(monkeypatch):
     """resolver가 final_answer를 못 채우는 결함이 있어도 울타리로 끝난다."""
     monkeypatch.setattr(G, "resolver_node", lambda s: {"visited": ["resolver"]})

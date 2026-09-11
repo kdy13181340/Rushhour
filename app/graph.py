@@ -93,6 +93,7 @@ def new_turn_input(question: str) -> dict:
     RouteState에 턴 단위 필드를 추가하면 여기에도 넣는다(tests/test_router.py가 검사).
     """
     return {"question": question, "season": None, "theme": None, "district": "",
+            "origin": "", "dest": "",                   # route 분기(35d4b7f): 이전 턴의 출발·도착이 남으면 안 됨
             "superlative": False, "outside_seoul": False, "intake_mode": None,
             "hits": None, "light_spots": None, "verdict": None,
             "final_answer": None, "resolver_mode": None, "visited": None}
@@ -268,11 +269,17 @@ def researcher_node(state: RouteState) -> dict:
 
 # ── route (출발→도착 회랑 경유 테마길) ────────────────────────────────────────
 def route_node(state: RouteState) -> dict:
-    """출발→도착 회랑 위의 테마 가로수길을 조회.  (route_theme_streets 도구)"""
-    res = route_theme_streets.invoke({
-        "theme": state["theme"], "origin": state.get("origin", ""),
-        "dest": state.get("dest", ""),
-    })
+    """출발→도착 회랑 위의 테마 가로수길을 조회.  (route_theme_streets 도구)
+
+    researcher_node와 같은 폴백 ③ — 도구 예외는 verdict='no_data' + hits.tool_error 로 넘긴다(DP10 보강).
+    """
+    args = {"theme": state["theme"], "origin": state.get("origin") or "", "dest": state.get("dest") or ""}
+    try:
+        res = route_theme_streets.invoke(args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [route 폴백] 도구 실패({type(exc).__name__}) → no_data")
+        res = {"ok": False, "reason": f"도구 오류 {type(exc).__name__}: {str(exc)[:120]}",
+               "tool_error": type(exc).__name__}
     verdict = "match" if res.get("ok") else "no_data"
     return {"hits": res, "verdict": verdict, "visited": ["route"]}
 
