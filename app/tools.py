@@ -48,17 +48,38 @@ def available_districts() -> tuple[str, ...]:
     return tuple(sorted(_load()["구"].unique()))
 
 
+def _hotspot_focus(seg, cell: float = 0.004) -> dict:
+    """도로 나무 좌표에서 가장 밀집한 ~1km 격자를 찾아 지도 focus(center·bbox) 반환.
+
+    긴 대로도 걷기 좋은 밀집 구간으로 좁힌다. cell≈0.004°≈400~450m, 창은 ±1칸.
+    """
+    gy = (seg["위도"] / cell).round()
+    gx = (seg["경도"] / cell).round()
+    (by, bx) = gy.astype(str).str.cat(gx.astype(str), sep=",").mode().iloc[0].split(",")
+    by, bx = float(by), float(bx)
+    win = seg[(gy >= by - 1) & (gy <= by + 1) & (gx >= bx - 1) & (gx <= bx + 1)]
+    return {
+        "center": [round(float(win["위도"].mean()), 6), round(float(win["경도"].mean()), 6)],
+        "bbox": [[round(float(win["위도"].min()), 6), round(float(win["경도"].min()), 6)],
+                 [round(float(win["위도"].max()), 6), round(float(win["경도"].max()), 6)]],
+    }
+
+
 @tool
-def find_theme_streets(theme: str, district: str = "") -> dict:
+def find_theme_streets(theme: str, district: str = "", top_only: bool = False) -> dict:
     """특정 테마에 맞는(또는 회피할) 가로수가 밀집한 도로를 찾는다.
 
     Args:
         theme: 테마 키. 다음 중 하나 —
             은행회피 · 벚꽃 · 그늘 · 이팝 · 은행단풍 · 메타세쿼이아
         district: 자치구 이름(예: '강남구'). 비우면 서울 전체에서 찾는다.
+        top_only: '가장 큰/제일 좋은 길 하나'처럼 단일 도로를 원할 때 True.
+            True면 1등 도로만 반환하고 지도 focus도 그 도로로 좁힌다.
 
     Returns:
-        {ok, theme, mode, season, district, streets:[{구,노선,그루수}], note}
+        {ok, theme, mode, season, district, streets:[{구,노선,그루수,center}], focus, note}
+        - focus.center/bbox는 지도 이동·줌 대상. 자치구 미지정이거나 top_only면
+          1등 도로로 좁혀 서울 전체가 잡히지 않게 한다.
         - mode가 'prefer'면 streets는 '걷기 좋은 추천 길',
           'avoid'면 '피하는 게 좋은 길'이다.
         - 데이터에 없는 테마/자치구면 ok=False 와 사유·후보를 돌려준다.
@@ -80,10 +101,11 @@ def find_theme_streets(theme: str, district: str = "") -> dict:
         return {"ok": False, "reason": "해당 지역에 이 테마의 가로수 데이터가 없음",
                 "theme": theme, "district": district or "서울 전체"}
 
-    top = (
+    ranked = (
         hit.groupby(["구", "노선"]).size()
-        .sort_values(ascending=False).head(6).reset_index(name="그루수")
+        .sort_values(ascending=False).reset_index(name="그루수")
     )
+    top = ranked.head(1 if top_only else 6)
     streets = []
     for _, r in top.iterrows():
         seg = hit[(hit["구"] == r["구"]) & (hit["노선"] == r["노선"])]
@@ -92,14 +114,13 @@ def find_theme_streets(theme: str, district: str = "") -> dict:
             # 지도 이동용 중심좌표(가벼움). 마커 점 배열은 map_api.street_points()로 UI가 따로 가져감.
             "center": [round(float(seg["위도"].mean()), 6), round(float(seg["경도"].mean()), 6)],
         })
-    # 상위 3개 도로를 한눈에 담는 지도 뷰(pan/zoom 대상)
-    focus_seg = hit.merge(top.head(3)[["구", "노선"]], on=["구", "노선"])
-    focus = {
-        "center": [round(float(focus_seg["위도"].mean()), 6),
-                   round(float(focus_seg["경도"].mean()), 6)],
-        "bbox": [[round(float(focus_seg["위도"].min()), 6), round(float(focus_seg["경도"].min()), 6)],
-                 [round(float(focus_seg["위도"].max()), 6), round(float(focus_seg["경도"].max()), 6)]],
-    }
+    # 지도 뷰(pan/zoom 대상) = 1등 도로에서 나무가 가장 몰린 ~1km 핫스팟.
+    # 도로 전체 bbox를 쓰면 올림픽대로처럼 도시를 가로지르는 대로에서 지도가 서울 전체로
+    # 확대돼 버린다. 걷기 좋은 밀집 구간으로 좁힌다.
+    r0 = top.iloc[0]
+    primary_seg = hit[(hit["구"] == r0["구"]) & (hit["노선"] == r0["노선"])]
+    focus = _hotspot_focus(primary_seg)
+    focus["primary"] = {"구": str(r0["구"]), "노선": str(r0["노선"])}
     return {
         "ok": True, "theme": theme, "mode": spec["mode"], "season": spec["season"],
         "district": district or "서울 전체", "total_trees": int(len(hit)),
