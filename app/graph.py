@@ -31,7 +31,6 @@ LLM은 intake·resolver 두 곳만 쓰며, 둘 다 실패하면 규칙/템플릿
        AGENT_CHANNEL=local python app/graph.py    (8080 기동 후 LLM 경로)
 """
 
-import operator
 import os
 from datetime import date
 from typing import Annotated, Literal
@@ -57,6 +56,17 @@ def _no_llm() -> bool:
 
 
 # ── 상태 (pj02 TriageState 대응) ──────────────────────────────────────────────
+def _add_or_reset(old: list | None, new: list | None) -> list:
+    """visited 리듀서 — 평소엔 누적(operator.add), None이 오면 '새 턴'으로 보고 비운다.
+
+    체크포인터가 있으면 같은 thread_id의 다음 질문에도 이전 턴 상태가 남는다(LastValue 채널은
+    입력에 없는 키를 그대로 유지). 누적 채널은 입력으로 덮어쓸 수 없어 리셋 신호가 따로 필요하다.
+    """
+    if new is None:
+        return []
+    return (old or []) + list(new)
+
+
 class RouteState(TypedDict, total=False):
     question: str                             # 입력: 원문 질문
     season: str                               # season: spring|summer|autumn|winter (코드)
@@ -72,7 +82,20 @@ class RouteState(TypedDict, total=False):
     verdict: str                              # 'match'|'no_data'|'unknown_intent'|'out_of_coverage'|'outside_seoul'
     final_answer: str                         # resolver
     resolver_mode: str                        # resolver: 'llm' | 'template' | 'refuse'
-    visited: Annotated[list, operator.add]    # 방문 이력(누적)
+    visited: Annotated[list, _add_or_reset]   # 방문 이력(누적, None이면 새 턴 → 리셋)
+
+
+def new_turn_input(question: str) -> dict:
+    """같은 thread에서 새 질문을 시작할 때의 그래프 입력 — 이전 턴의 결정을 모두 비운다.  [DP13]
+
+    라우터는 '빈 칸 순서'로 움직이므로 비우면 season부터 다시 돈다. 체크포인터 없이 쓰는
+    run_one은 매번 빈 상태라 필요 없고, thread_id를 재사용하는 호출자(/chat)가 쓴다.
+    RouteState에 턴 단위 필드를 추가하면 여기에도 넣는다(tests/test_router.py가 검사).
+    """
+    return {"question": question, "season": None, "theme": None, "district": "",
+            "superlative": False, "outside_seoul": False, "intake_mode": None,
+            "hits": None, "light_spots": None, "verdict": None,
+            "final_answer": None, "resolver_mode": None, "visited": None}
 
 
 # ── season 노드 (코드, LLM 없음)  [DP5] ───────────────────────────────────────
@@ -226,11 +249,19 @@ def intake_node(state: RouteState) -> dict:
 
 # ── researcher (도구 호출은 코드가 고정 — 7B 전환 대비, DP4) ──────────────────
 def researcher_node(state: RouteState) -> dict:
-    """가로수 도구를 호출해 테마 도로를 조회.  (week5 도구 호출 사이클)"""
-    res = find_theme_streets.invoke({
-        "theme": state["theme"], "district": state.get("district", ""),
-        "top_only": bool(state.get("superlative")),
-    })
+    """가로수 도구를 호출해 테마 도로를 조회.  (week5 도구 호출 사이클)
+
+    도구 예외는 그래프를 죽이지 않고 verdict='no_data'로 넘긴다(BE_DESIGN §3 폴백 ③).
+    `hits.tool_error`에 예외 이름을 남겨 궤적에서 셀 수 있게 한다.
+    """
+    args = {"theme": state["theme"], "district": state.get("district") or "",
+            "top_only": bool(state.get("superlative"))}
+    try:
+        res = find_theme_streets.invoke(args)
+    except Exception as exc:  # noqa: BLE001 — 데이터 파일 없음·스키마 불일치 등
+        print(f"  [researcher 폴백] 도구 실패({type(exc).__name__}) → no_data")
+        res = {"ok": False, "reason": f"도구 오류 {type(exc).__name__}: {str(exc)[:120]}",
+               "tool_error": type(exc).__name__}
     verdict = "match" if res.get("ok") else "no_data"
     return {"hits": res, "verdict": verdict, "visited": ["researcher"]}
 

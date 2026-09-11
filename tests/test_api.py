@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
+def client(tmp_path_factory, rag_index):
     import os
     os.environ["CHECKPOINT_DB"] = str(tmp_path_factory.mktemp("ckpt") / "c.sqlite")
     from backend.main import app
@@ -45,6 +45,19 @@ def test_tool_endpoint_no_llm(client):
     assert 0 < len(pts["points"]) <= 1000
 
 
+def test_search_places_endpoint_and_health_rag(client):
+    """벡터DB 검색을 API로 — LLM·임베딩 모델 없이(해시 채널 인덱스)."""
+    h = client.get("/health").json()
+    assert h["rag"]["ready"] and h["rag"]["docs"] > 1500 and h["rag"]["channel"] == "hash"
+    assert h["embed"]["channel"] == "hash" and h["embed"]["reachable"] is True
+    r = client.post("/tools/search_places", json={"query": "석촌호수 벚꽃", "k": 3}).json()
+    assert r["ok"] and (r["results"][0]["구"], r["results"][0]["노선"]) == ("송파구", "석촌호수로")
+    assert r["results"][0]["center"][0] > 37 and "score" in r["results"][0]
+    r2 = client.post("/tools/search_places", json={"query": "벚꽃", "district": "강동구", "min_trees": 0}).json()
+    assert r2["ok"] and {x["구"] for x in r2["results"]} == {"강동구"}
+    assert client.post("/tools/search_places", json={"query": ""}).status_code == 422
+
+
 def test_chat_sse_stream_and_thread(client):
     r = client.post("/chat", json={"message": "강남구에서 봄에 벚꽃 예쁜 길", "thread_id": "t-1"})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
@@ -60,3 +73,19 @@ def test_chat_sse_stream_and_thread(client):
     t = client.get("/threads/t-1").json()
     assert t["state"]["theme"] == "벚꽃" and t["next"] == []
     assert client.get("/threads/없음").status_code == 404
+
+
+def test_chat_same_thread_next_turn_starts_fresh(client):
+    """UI는 세션당 thread_id 하나를 재사용한다 — 두 번째 질문이 이전 답을 되돌려주면 안 된다(DP13)."""
+    turns = [("강남구에서 봄에 벚꽃 예쁜 길", "벚꽃", "강남구", "match"),
+             ("서초구 여름 그늘길", "그늘", "서초구", "match"),
+             ("오늘 날씨 어때?", "unknown", "", "unknown_intent")]
+    for q, theme, gu, verdict in turns:
+        evs = _events(client.post("/chat", json={"message": q, "thread_id": "t-multi"}).text)
+        nodes = [d["name"] for e, d in evs if e == "node"]
+        assert nodes[:4] == ["supervisor", "season", "supervisor", "intake"], nodes
+        final = evs[-1][1]
+        assert (final["theme"], final["district"], final["verdict"]) == (theme, gu, verdict)
+        assert final["visited"].count("supervisor") <= 4     # hops가 턴마다 누적되지 않음
+    t = client.get("/threads/t-multi").json()                # 스레드 상태 = 마지막 턴
+    assert t["state"]["verdict"] == "unknown_intent" and t["state"]["hits"] is None

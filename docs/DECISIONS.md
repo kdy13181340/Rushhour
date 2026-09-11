@@ -76,7 +76,8 @@ week6 규율 그대로: 예측을 먼저, 버린 선택지도, 막힌 것은 막
 | 데이터 | 매 기동 cp949 CSV 파싱, 절대경로 | Parquet(6.4MB), 저장소 상대경로 |
 | UI↔에이전트 | Streamlit이 그래프 직접 import | FastAPI SSE 클라이언트 |
 | LLM 없을 때 | 채팅 실패 메시지 | 규칙 intake + 템플릿 답변, 지도 정상 |
-| 테스트 | 없음 | 25건(LLM 불필요) |
+| 테스트 | 없음 | 47건(LLM·임베딩 모델 불필요) |
+| RAG | README 예고만 | Chroma (구,노선) 문서 1,780건 + `search_places`, 임베딩 채널 5종, eval 18건(DP14) |
 
 ## DP12 — develop(b4d15d3·7457e29) 병합 (2026-09-11)
 - 에이전트 개발자의 두 커밋을 supervisor 구조 위에 이식: ①미션을 "추천"으로 재정의하고
@@ -87,3 +88,80 @@ week6 규율 그대로: 예측을 먼저, 버린 선택지도, 막힌 것은 막
   verdict 값으로도 남겨 궤적에서 셀 수 있게 함.
 - 자동 병합(-X theirs)이 tools.py의 `ranked` 변수명을 깨뜨림 → 테스트로 발견·수정.
   같은 파일을 두 사람이 고치는 동안은 리베이스 후 반드시 `pytest tests`를 돌릴 것.
+
+## DP13 — 같은 thread의 다음 질문은 턴 상태를 비운다 (2026-09-11, BE)
+- 관찰: UI는 세션당 thread_id 하나를 재사용하는데, `/chat`이 `{question, visited: []}`만 넣으면
+  체크포인트에 남은 season·theme·hits·final_answer가 그대로라 라우터가 첫 supervisor에서
+  FINISH → **이전 턴의 답을 다시 보냄**. visited는 누적이라 턴마다 hops가 쌓여 울타리로 향함.
+  기존 test_api는 1턴만 검사해 놓쳤음(재현: 2·3턴 nodes=['supervisor'], hops 5·6).
+- 고른 것: `graph.new_turn_input(question)` — 턴 단위 채널을 전부 None/기본값으로 덮고,
+  `visited` 리듀서를 `_add_or_reset`(None이면 [])로 바꿔 리셋 신호를 받게 함. `/chat`만 이걸 쓰고
+  `run_one`(체크포인터 없음)은 그대로. RouteState 키 ⊆ new_turn_input 키를 테스트가 검사한다.
+- 버린 것: ① 턴마다 새 thread_id — `/threads/{id}` 복구에 conversation→turn 매핑이 따로 필요.
+  ② `checkpointer.delete_thread` — 나중에 대화 맥락 채널("그럼 서초구는?")을 두면 같이 지워짐.
+  리셋 방식은 턴 단위 필드만 비우므로 대화 단위 채널을 추가해도 그대로 동작한다.
+- 확인: tests/test_api.py `test_chat_same_thread_next_turn_starts_fresh`(3턴, hops ≤ 4),
+  tests/test_router.py `test_new_turn_input_resets_thread_state`(리셋 없이 넣으면 이전 답이 남는
+  LangGraph 동작도 함께 고정).
+
+## DP10 보강 — 폴백 ③ 도구 예외 (2026-09-11, BE)
+- researcher_node가 `find_theme_streets.invoke`를 try/except로 감싸 예외를
+  `hits={ok:False, reason, tool_error}` + `verdict=no_data`로 바꿈. 전에는 예외가 그대로 SSE
+  `error` 이벤트로 나가 채팅이 끊겼음(BE_DESIGN §3 ③은 설계만 있고 구현이 없었음).
+- `tool_error`는 `/chat`의 `result` 궤적 이벤트에도 실어 폴백 발동을 셀 수 있게 함.
+- 확인: tests/test_router.py `test_e2e_tool_exception_falls_back_to_no_data`.
+
+## DP14 — 벡터DB(Chroma) · 임베딩 채널 · `search_places` (2026-09-11, BE)
+- 요청: 에이전트 개발자(B)가 벡터DB/Chroma를 요청 — app/README '벡터DB(RAG) 연동 지점'의 `search_places`.
+- 문서 단위: (구, 노선) 1,780건(5그루 미만 제외). 텍스트 = "서울 {구} {노선}. 동네: … 가로수 n그루: 수종별 …
+  테마: 라벨(n그루; themes.py keywords) … 주의: 은행 냄새 회피 테마에서 피하는 길(n그루). 인근 도로: …".
+  좌표 배열은 안 넣음(map_api). 메타데이터: 구·노선·그루수·수종·동·themes·lat·lon. `app/rag.py build_street_docs`.
+  - 테마 keywords를 문서에 넣는 이유: 구어체("꽃구경", "플라타너스")가 문서에 닿게. themes.py 단일 출처의
+    재사용이지 평가 질의에 맞춘 게 아님. 회피 테마엔 안 넣음 — '냄새'가 들어가면 "냄새 안 나는 길"이 은행길로 끌려감.
+- 임베딩 채널(`app/embeddings.py`, llm.py 패턴): local(8082 OpenAI 호환, 기본) · openai · gemini ·
+  st(sentence-transformers CPU, 기본 intfloat/multilingual-e5-small) · hash(문자 n-gram, 모델 없음).
+  인덱스는 `data/chroma/<채널>/`에 채널별로 두고, 컬렉션 메타데이터에 임베딩 서명(채널:모델)을 남겨
+  질의 시 다르면 거절한다 — 다른 모델의 벡터 공간을 섞으면 결과가 조용히 망가진다.
+- hash 채널 설계(eval 18건 MRR, k=10): 어절을 이어 붙인 2·3-gram·1024차원 0.24 → 어절 내 n-gram·√빈도·
+  8192차원 0.64 → 테마 keywords로 문서를 늘리자 0.50(IDF가 없어 모든 벚꽃 문서에 같은 낱말) → 코퍼스 IDF
+  (`hash_idf.npy`, 인덱스 디렉터리에 저장·질의 때 로드) 0.61. 테스트·CI·모델 없는 PC용. 의미 질의는 못
+  잡는다(예측대로 semantic 3건 0/3).
+- 재정렬 `size_weight`: score = 유사도 + w·log10(그루수), **기본 0.02**(실험 전에 한 번 정한 값, 스윕 아님).
+  근거: 산책길 추천엔 큰 길이 더 가치 있는데 짧은 골목(○○로NN길)이 대로를 이기는 현상이 두 채널에서 공통.
+  측정(min_trees=20, k=10):
+
+  | 채널 | w=0 | 0.01 | **0.02(기본)** | 0.05 |
+  |---|---|---|---|---|
+  | hash(IDF) | 0.611 | 0.662 | 0.724 | 0.769 |
+  | st e5-small | 0.661 | 0.824 | **0.873** | 0.711 |
+
+  e5는 0.05에서 표기 질의가 무너짐(lexical MRR 0.94→0.72, 크기가 유사도를 덮음) → 0.02 유지.
+  `min_trees=20` 하한(THEME_MIN과 같은 값)은 기본, 호출자가 0으로 풀 수 있음.
+- **팀 임베딩 서버(bge-m3) 실측 (2026-09-11 저녁)**: 에이전트 개발자 파드 `i3pdrbs4uwzc7r` 포트 30000에
+  llama-server가 `bge-m3-Q8_0.gguf`를 서빙(`/v1/embeddings` 1024차원, `/v1/models`·`/props` 응답, 64건 배치
+  1.3초). **코드 수정 없이** `EMBED_CHANNEL=local EMBED_BASE_URL=<서버>/v1 EMBED_MODEL=bge-m3`로 색인·평가:
+
+  | 채널 | w=0 | **0.02(기본)** | hit@1 | hit@10 |
+  |---|---|---|---|---|
+  | local bge-m3 (Q8, llama-server) | 0.706 | **0.809** | 13/18 | 18/18 |
+  | st e5-small (참고) | 0.661 | 0.873 | 15/18 | 18/18 |
+
+  18건 평가라 e5-small과의 차이(0.06)는 유의하다고 보기 어렵고, 의미 질의는 bge-m3가 "가을 노란 단풍 종로"를
+  1위로 잡는 등 결이 다르다. 유의점: bge-m3는 유사도 분포가 넓어(0.3~0.8) e5(0.87~0.90)보다 같은
+  `size_weight`의 영향이 작다 — 계수를 모델별로 손대지 않고, 후보 안에서 유사도를 정규화한 뒤 더하는 방식이
+  모델 독립적이다(미구현, 후속). `EMBED_MODEL`을 비우면 서명이 GGUF 파일 경로(`local:/workspace/models/
+  bge-m3-Q8_0.gguf`)가 되어 파일을 옮기면 재색인을 요구하므로 `EMBED_MODEL=bge-m3`로 고정할 것(서버는 이름을
+  그대로 되돌려줌). 평가 질의를 더 보태는 게 다음 일(`data/eval/search_places.jsonl`에 한 줄씩).
+- 결과(`scripts/03_eval_search_places.py`, `data/eval/search_places.jsonl` 18건 = lexical 15 + semantic 3):
+  e5-small 기본값 hit@1 15/18 · hit@10 18/18 · MRR 0.873. 표기 질의 14/15가 1위. 의미 질의는 1위 1건
+  ("더운 여름 시원하게…서초"→강남대로), 나머지 2위·9위. HNSW 근사라 재실행 간 ±0.03 흔들림 관찰.
+- 알려진 약점: ① "강남대로 플라타너스 그늘" 10위 — 수종명은 '양버즘나무', '플라타너스'는 테마 keywords에만.
+  ② "봄에 꽃구경하기 좋은 강동구 길" 9위 — 벚꽃 어휘가 여러 강동구 문서에 있어 아리수로가 안 튐.
+  ③ 8082 임베딩 서버 모델·bge-m3급으로 같은 스크립트를 돌려 비교할 것(local 채널, 재색인 2분 이내).
+- 버린 것: Chroma 기본 EF(ONNX MiniLM, 영어) · fastembed(모델 목록 고정) · 채널 무관 단일 인덱스(전환 시
+  서명 불일치로 조용히 깨짐) · `delete_thread`식 단순화.
+- 통합 지점(B): `rag.search_places` @tool은 라우터가 고정 호출(DP4). 제안 — intake가 district를 못 뽑았거나
+  theme=unknown인데 질문에 지명·동네가 보이면 researcher가 `search_places`로 (구, 노선) 후보를 얻어
+  `find_theme_streets(theme, 후보 구)`로 이어감. 그래프 배선은 B 몫. API: `POST /tools/search_places`,
+  `/health`의 `rag`.
+- 확인: tests/test_rag.py 11건 + test_api 1건(모델 없이 hash 채널; 세션 픽스처가 임시 인덱스를 ~10초에 빌드).

@@ -122,6 +122,48 @@ def test_e2e_no_data(app, monkeypatch):
     assert out["verdict"] == "no_data" and "데이터 없음" in out["final_answer"]
 
 
+def test_e2e_tool_exception_falls_back_to_no_data(app, monkeypatch):
+    """도구가 예외를 던져도 그래프는 죽지 않고 no_data로 안내한다(BE_DESIGN §3 폴백 ③)."""
+    import types
+
+    def boom(args):
+        raise RuntimeError("테스트: 데이터 파일 손상")
+    monkeypatch.setattr(G, "find_theme_streets", types.SimpleNamespace(invoke=boom))
+    out = run_one(app, "강남구 벚꽃길")
+    assert out["verdict"] == "no_data" and out["hits"]["tool_error"] == "RuntimeError"
+    assert out["resolver_mode"] == "refuse" and "RuntimeError" in out["final_answer"]
+
+
+# ── 멀티턴: 체크포인터가 있을 때 같은 thread의 다음 질문 (DP13) ─────────────
+def test_visited_reducer_accumulates_and_resets():
+    assert G._add_or_reset(["a"], ["b"]) == ["a", "b"]
+    assert G._add_or_reset(["a", "b"], None) == []
+    assert G._add_or_reset(None, ["a"]) == ["a"]
+
+
+def test_new_turn_input_covers_all_state_keys():
+    """RouteState에 턴 단위 필드를 추가하면 new_turn_input에도 넣어야 한다."""
+    keys = set(G.RouteState.__annotations__) - {"question"}
+    assert keys <= set(G.new_turn_input("q")), keys - set(G.new_turn_input("q"))
+
+
+def test_new_turn_input_resets_thread_state():
+    """체크포인터가 있을 때 같은 thread의 두 번째 질문이 season부터 다시 돈다."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    app = build_graph(checkpointer=InMemorySaver())
+    cfg = {"configurable": {"thread_id": "t"}}
+    a = app.invoke(G.new_turn_input("강남구에서 봄에 벚꽃 예쁜 길"), config=cfg)
+    b = app.invoke(G.new_turn_input("서초구 여름 그늘길"), config=cfg)
+    assert (a["theme"], a["district"], a["season"]) == ("벚꽃", "강남구", "spring")
+    assert (b["theme"], b["district"], b["season"]) == ("그늘", "서초구", "summer")
+    assert b["visited"].count("supervisor") == 4          # 턴마다 hops가 쌓이지 않음
+    # 리셋 없이 question만 바꾸면 이전 턴이 그대로 남아 supervisor에서 바로 끝난다 —
+    # 이 결함 때문에 new_turn_input이 있다.
+    c = app.invoke({"question": "종로구 은행단풍", "visited": []}, config=cfg)
+    assert c["theme"] == "그늘" and c["final_answer"] == b["final_answer"]
+    assert c["visited"].count("supervisor") == 5
+
+
 def test_e2e_fence_terminates(monkeypatch):
     """resolver가 final_answer를 못 채우는 결함이 있어도 울타리로 끝난다."""
     monkeypatch.setattr(G, "resolver_node", lambda s: {"visited": ["resolver"]})

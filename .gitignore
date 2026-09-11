@@ -18,6 +18,7 @@ env/
 
 # 산출물 (scripts/01 결과·체크포인트·궤적) — 재생성 가능
 data/processed/
+data/chroma/
 data/checkpoints.sqlite*
 results/
 .pytest_cache/

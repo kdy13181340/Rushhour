@@ -8,8 +8,10 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
 엔드포인트:
   GET  /health                     모델 서버·데이터·그래프 상태 (UI가 첫 화면에서 배지 표시)
   POST /chat                       {thread_id, message} → SSE (node / final / error 이벤트)
+                                   같은 thread_id로 다음 질문을 보내면 이전 턴 상태를 비우고 처음부터 돈다(DP13)
   GET  /threads/{thread_id}        체크포인트 상태 조회 (UI 새로고침 복구)
   POST /tools/find_theme_streets   LLM 없이 도구만 호출 (사이드바 '빠른 추천')
+  POST /tools/search_places        벡터DB 의미검색 (동네·지명·구어체 → (구, 노선) 후보)  [RAG]
   GET  /themes  · GET /districts   UI 셀렉트박스용 메타
   GET  /map/street_points          지도 마커 좌표 (map_api.street_points)
 """
@@ -30,9 +32,11 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))          # app/ 모듈은 평면 import(dev1 구조 유지)
 
-from graph import build_graph, MAX_HOPS               # noqa: E402
+from graph import build_graph, MAX_HOPS, new_turn_input   # noqa: E402
 from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points                      # noqa: E402
+from rag import rag_status, search_places              # noqa: E402
+from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_model   # noqa: E402
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
 from backend.trace import make_tracer                  # noqa: E402
@@ -64,6 +68,23 @@ def _llm_reachable() -> dict:
         return {"channel": "local", "reachable": False, "model": None}
 
 
+def _embed_reachable() -> dict:
+    """임베딩 채널 상태. local이면 EMBED_BASE_URL/models 를 2초 안에 확인(프록시 뒤 서버 고려)."""
+    ch = embed_channel()
+    info = {"channel": ch, "model": configured_model(ch) or "(auto)", "base_url": EMBED_BASE_URL if ch == "local" else None}
+    if ch in ("hash", "st"):
+        return {**info, "reachable": True}                  # 로컬 계산 — 네트워크 없음
+    if ch in ("openai", "gemini"):
+        return {**info, "reachable": True}
+    try:
+        import httpx
+        r = httpx.get(f"{EMBED_BASE_URL}/models", timeout=2.0)
+        ids = [m.get("id") for m in r.json().get("data", [])] if r.status_code == 200 else []
+        return {**info, "reachable": r.status_code == 200, "served": ids[:3]}
+    except Exception:  # noqa: BLE001
+        return {**info, "reachable": False}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     t0 = time.time()
@@ -86,6 +107,8 @@ def health():
         "ok": True, "graph": STATE.get("graph") is not None, "max_hops": MAX_HOPS,
         "data": {"source": data_source(), "districts": len(STATE.get("districts", ()))},
         "llm": llm,
+        "rag": rag_status(),        # 벡터DB 인덱스 유무·임베딩 채널 일치 여부 (모델은 로드 안 함)
+        "embed": _embed_reachable(),  # 임베딩 서버(local=llama-server 등) 도달 여부 — 검색 불가 배지용
         # LLM이 없어도 지도는 나온다 — UI는 이 값으로 '채팅은 규칙 모드' 배지를 띄운다
         "chat_mode": "llm" if llm["reachable"] else "rule",
         "uptime_sec": round(time.time() - STATE.get("started", time.time()), 1),
@@ -114,6 +137,23 @@ def tool_find_theme_streets(q: ThemeQuery):
     res = find_theme_streets.invoke({"theme": q.theme, "district": q.district})
     STATE["tracer"].event("tool_call", {"tool": "find_theme_streets", "args": q.model_dump(),
                                         "ok": res.get("ok")})
+    return res
+
+
+class PlaceQuery(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    k: int = Field(default=5, ge=1, le=20)
+    district: str = ""
+    min_trees: int = Field(default=20, ge=0)               # 골목 제외 하한(0=없음)
+    size_weight: float = Field(default=0.02, ge=0.0, le=1.0)  # 큰 길 우선 재정렬(0=유사도만). rag.DEFAULT_SIZE_WEIGHT
+
+
+@app.post("/tools/search_places")
+def tool_search_places(q: PlaceQuery):
+    res = search_places.invoke(q.model_dump())
+    STATE["tracer"].event("tool_call", {"tool": "search_places", "args": q.model_dump(),
+                                        "ok": res.get("ok"), "embed": res.get("embed"),
+                                        "top": [f"{x['구']} {x['노선']}" for x in res.get("results", [])[:3]]})
     return res
 
 
@@ -150,9 +190,11 @@ def chat(body: ChatIn):
         tracer.event("inquiry", {"thread_id": thread_id, "text": body.message[:120]})
         yield _sse("start", {"thread_id": thread_id})
         try:
-            # stream_mode="updates": 노드가 끝날 때마다 {노드명: 부분상태} 한 덩이
+            # stream_mode="updates": 노드가 끝날 때마다 {노드명: 부분상태} 한 덩이.
+            # new_turn_input: 체크포인트에 남은 이전 턴(theme·hits·final_answer·visited)을 비운다 —
+            # question만 바꾸면 라우터가 supervisor에서 바로 FINISH해 이전 답을 다시 보낸다(DP13).
             for update in graph.stream(
-                {"question": body.message, "visited": []}, config=config, stream_mode="updates"
+                new_turn_input(body.message), config=config, stream_mode="updates"
             ):
                 for node, patch in update.items():
                     patch = patch or {}
@@ -170,6 +212,7 @@ def chat(body: ChatIn):
                                     "theme": final["theme"], "intake_mode": final["intake_mode"],
                                     "resolver_mode": final["resolver_mode"],
                                     "hops": (final["visited"] or []).count("supervisor"),
+                                    "tool_error": (final["hits"] or {}).get("tool_error"),
                                     "elapsed_sec": final["elapsed_sec"]})
             yield _sse("final", final)
         except Exception as exc:  # noqa: BLE001

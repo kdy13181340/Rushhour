@@ -21,6 +21,8 @@
 | `tools.py` | 가로수 CSV 로드 + `find_theme_streets`(지오 포함) / `check_coverage` (@tool) | A(데이터) |
 | `map_api.py` | 지도 마커/히트맵용 좌표 헬퍼(`street_points`,`theme_points`) — **@tool 아님, UI 전용** | A↔C |
 | `llm.py` | `get_chat_model` — 코스 로컬 8080 / Gemini / OpenAI | 공통 |
+| `embeddings.py` | 임베딩 채널(local 8082 / openai / gemini / st / hash) — llm.py 패턴 | BE |
+| `rag.py` | Chroma 색인(`build_index`) + `search_places`(@tool) 의미검색 | BE |
 | `graph.py` | **에이전트 그래프(State·노드·라우팅)** | **B(에이전트, 나)** |
 | `app_streamlit.py` | 지도(pydeck)+채팅 UI 골격 | C(UI) |
 
@@ -42,7 +44,7 @@ API로 돌리려면: `AGENT_CHANNEL=gemini GEMINI_API_KEY=... python graph.py`
 
 ## 검증된 것 (LLM 없이)
 
-- 데이터 로드: 27개 자치구 / 컬럼(자치구·노선·수종·경도·위도), cp949
+- 데이터 로드: 25개 자치구(관리기관 행 복원, DP6) / 컬럼(구·노선·수종·경도·위도), Parquet
 - `find_theme_streets("벚꽃","강동구")` → 아리수로 628그루 … 정상
 - 라우팅 3분기: 판별불가→resolver, 커버리지밖→resolver, 정상→researcher
 - `build_graph()` 컴파일 OK
@@ -67,18 +69,27 @@ AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_stre
 ```
 사이드바 ‘빠른 추천’은 LLM 없이 도구만 호출 → 8080 없이도 지도 데모 가능. 채팅창은 에이전트 전체 경로 사용.
 
-## 벡터DB(RAG) 연동 지점 — week4
+## 벡터DB(RAG) 연동 지점 — 구현됨(BE, `rag.py` · DECISIONS DP14)
 
-팀원이 CSV로 벡터DB를 구성하면, 에이전트에 **검색 도구 하나(@tool)**로 붙인다(도구 계약만 지키면 됨):
+`search_places` @tool이 Chroma에서 **(구, 노선) 문서 1,780건**을 의미검색한다(도구 계약):
 ```python
-@tool
-def search_places(query: str, k: int = 5) -> list[dict]:
-    """자유서술·장소명으로 가로수/도로를 의미검색. 예: '벚꽃 유명한 하천길', '양재천 근처'.
-    반환: [{구, 노선, 수종, score}] — 이후 find_theme_streets로 좌표를 얻는다."""
+from rag import search_places
+search_places.invoke({"query": "양재천 근처 메타세쿼이아", "k": 5,
+                      "district": "", "min_trees": 20, "size_weight": 0.02})
+# → {ok, results:[{구, 노선, 그루수, 수종, 동, themes, score, similarity, center}], embed, note}
+#   ok=False면 reason: 인덱스 없음 · 임베딩 채널 불일치(→ scripts/02_build_vector_db.py 재색인)
 ```
-쓰임새: ① **장소명/구어체 매칭**("강남역 근처", "양재천") → 자치구·도로로 해소(현재 못 하는 부분),
-② 테마에 안 잡히는 **자유 질의** 대응. graph.py의 `intake`가 자치구를 못 뽑을 때 researcher가
-`search_places`로 후보 도로를 찾는 흐름으로 확장. **도구 개수는 +1**로 충분.
+쓰임새: ① **장소명/동네/구어체**("강남역 근처", "양재천", "대치동 산책길") → (구, 노선) 후보,
+② 테마 키로 안 잡히는 **자유 질의**. 좌표는 안 돌려주므로 후보의 (구, 노선)으로
+`find_theme_streets`·`map_api.street_points`를 이어 부른다. `themes` 필드로 테마를 되짚을 수도 있다.
+
+**B가 배선할 곳(제안)**: intake가 district를 못 뽑았거나 theme이 unknown인데 질문에 지명·동네가
+보이면, researcher가 `search_places`로 후보를 얻어 `find_theme_streets(theme, 후보 구)`로 이어감
+(라우터 고정 호출, DP4). 도구 개수는 +1.
+
+인덱스: `python scripts/02_build_vector_db.py [--channel hash|st|local]` → `data/chroma/<채널>/`.
+품질: `python scripts/03_eval_search_places.py` — 18건에서 e5-small MRR 0.87, 모델 없는 hash 0.72.
+API: `POST /tools/search_places`, `/health`의 `rag`.
 
 ## 팀 인터페이스
 
@@ -87,4 +98,5 @@ def search_places(query: str, k: int = 5) -> list[dict]:
 - **C(UI)**: 그래프를 직접 import하지 않고 `backend/main.py`의 API를 부른다.
   `POST /chat`(SSE) → `final` 이벤트의 `final_answer`·`hits["streets"]`,
   `POST /tools/find_theme_streets`(빠른 추천), `GET /map/street_points`(마커).
+  같은 `thread_id`로 다음 질문을 보내도 된다 — BE가 턴마다 상태를 비운다(DECISIONS DP13).
 - **CLI/테스트**: `graph.build_graph()` + `run_one(app, 질문)`은 그대로 유효.

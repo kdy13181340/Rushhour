@@ -13,4 +13,6 @@ uvicorn[standard]>=0.30
 httpx>=0.27              # UI → API 클라이언트, /health 모델 서버 확인
 streamlit>=1.63          # UI (pydeck 동봉)
 pytest>=8                # tests/ (LLM 없이 실행 가능)
-# 선택: langfuse>=3      # TRACE_BACKEND=langfuse 일 때만
+chromadb>=1.0            # 벡터DB (app/rag.py, scripts/02). 인덱스는 data/chroma/<채널>/
+# 선택: langfuse>=3              # TRACE_BACKEND=langfuse 일 때만
+# 선택: sentence-transformers>=3 # EMBED_CHANNEL=st (로컬 CPU 임베딩, torch 포함 ~1GB). 8082 서버가 있으면 불필요

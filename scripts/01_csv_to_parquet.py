@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pandas as pd
 
+if (sys.stdout.encoding or "").lower().replace("-", "") != "utf8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows cp949 콘솔에서 '—' 출력 오류 방지
+
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "seoul_tree_data.csv"
 OUT = ROOT / "data" / "processed" / "seoul_trees.parquet"

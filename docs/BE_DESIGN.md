@@ -4,9 +4,15 @@
 
 ## 진행 상황 (2026-09-11)
 
-C1·C2·C3·C4·C5·C6 구현 완료(서버 없이 검증, tests 25건 통과). C7(plan_route·find_light_spots)은
-light 스텁만 배선됨. **제보 등록(register_report)·HITL은 팀 결정으로 범위에서 제외**(DP8).
-결정은 `DECISIONS.md` DP4~DP11.
+C1·C2·C3·C4·C5·C6 구현 완료(서버 없이 검증, tests 47건 통과). C7 중 `search_places`(벡터DB, RAG)는
+구현·평가 완료(DP14), `plan_route`·`find_light_spots`는 light 스텁만 배선됨.
+**제보 등록(register_report)·HITL은 팀 결정으로 범위에서 제외**(DP8).
+같은 thread의 다음 질문이 이전 답을 되돌려주던 결함 수정(DP13), 폴백 ③ 도구 예외 구현(DP10 보강).
+결정은 `DECISIONS.md` DP4~DP14.
+
+**BE 남은 것**: `search_places` 그래프 배선(B와 함께) · 8082 임베딩 서버 모델로 eval 재실행(local 채널) ·
+C7 `find_light_spots`(같은 Chroma 클라이언트에 컬렉션 추가 — 겨울 조명 문서 소스 미정) · LLM 경로 종단
+시험(8080 필요, 폴백 ①② 실발동 확인) · Langfuse 콜백 검증(서버 필요) · vLLM 7B A/B(DP7).
 
 ## 0. 초안 평가 — 살릴 것과 바꿀 것
 
@@ -111,8 +117,8 @@ df.to_parquet(OUT)   # UTF-8, 컬럼명 짧게: 구·노선·수종·도로명·
 | `POST /tools/find_theme_streets` | 사이드바 "빠른 추천"용. LLM 없이 도구만 호출하는 초안의 장점을 API로도 유지 |
 | `GET /health` | 8080 모델·Parquet·그래프 로드 여부. Streamlit이 첫 화면에서 호출해 "채팅 불가·빠른 추천만 가능" 배지 표시 |
 
-- 체크포인터는 `langgraph-checkpoint-sqlite`. 용도는 `/threads` 상태 복구(HITL은 범위 제외). `thread_id`는 Streamlit `session_state`의 uuid.
-- 폴백 3단(초안의 try/except 한 줄을 BE로 옮김): ① 구조화 출력 실패 → 오류 되먹임 재시도 1회 후 `theme="unknown"` ② 모델 서버 다운 → intake를 키워드 규칙(테마 라벨·자치구 명 매칭)으로 대체, resolver는 템플릿 문장. **지도는 LLM 없이도 반드시 나온다** ③ 도구 예외 → `verdict="no_data"` + 사유.
+- 체크포인터는 `langgraph-checkpoint-sqlite`. 용도는 `/threads` 상태 복구(HITL은 범위 제외). `thread_id`는 Streamlit `session_state`의 uuid. 같은 thread_id의 다음 질문은 `graph.new_turn_input`으로 턴 상태를 비우고 season부터 다시 돈다(DP13) — 그냥 question만 바꾸면 라우터가 바로 FINISH해 이전 답을 되돌려준다.
+- 폴백 3단(초안의 try/except 한 줄을 BE로 옮김): ① 구조화 출력 실패 → 오류 되먹임 재시도 1회 후 `theme="unknown"` ② 모델 서버 다운 → intake를 키워드 규칙(테마 라벨·자치구 명 매칭)으로 대체, resolver는 템플릿 문장. **지도는 LLM 없이도 반드시 나온다** ③ 도구 예외 → `verdict="no_data"` + 사유(`hits.tool_error`; researcher_node try/except — 구현됨).
 - 관측: `Tracer` 인터페이스 하나에 Langfuse `CallbackHandler` 구현과 week6 `TraceWriter` JSONL 구현. env `TRACE_BACKEND=langfuse|jsonl`. Langfuse 서버가 없어도 JSONL로 궤적이 남아야 한다.
 - Streamlit(`app_streamlit.py`)은 `get_app()` 대신 `requests`/`httpx`로 `/chat` SSE를 읽는다. pydeck 지도 코드는 그대로.
 
@@ -122,7 +128,7 @@ df.to_parquet(OUT)   # UTF-8, 컬럼명 짧게: 구·노선·수종·도로명·
 |---|---|---|---|
 | `plan_route(origin, destination, theme, season)` | OSM 보행망 + 나무→엣지 스냅 테이블 | researcher가 `find_theme_streets` 다음 호출 | osmnx bbox 캐시(GraphML), cKDTree 스냅 1회 배치. 가중치 `length×(1−α·bonus)`, α·수종 점수는 `themes.py`에 |
 | `find_light_spots(near, radius_m)` | Chroma(겨울 조명 문서) + 좌표 필터 | `light` (겨울에만 라우팅) | 4주차 임베딩 서버(8082) 재사용. Chroma distance는 툴 안에서 similarity로 뒤집음. 임계값은 eval 질의 20건으로 정함 |
-| `search_places(query, k)` | 초안 README가 예고한 RAG 도구 | intake가 자치구를 못 뽑을 때 researcher가 호출 | 노선·도로명 주소 인덱스. Chroma 하나에 조명 문서와 컬렉션을 나눠 담으면 서버 하나로 끝남 |
+| `search_places(query, k, district, min_trees, size_weight)` | **구현됨** `app/rag.py` — Chroma (구,노선) 문서 1,780건, 임베딩 채널 5종(`app/embeddings.py`), 채널별 `data/chroma/<채널>/` | intake가 자치구를 못 뽑을 때 researcher가 호출(배선은 B) | eval 18건: e5-small MRR 0.87 · hash(IDF) 0.72 (DP14). 조명 문서는 같은 클라이언트에 컬렉션 추가 |
 
 `light` 노드는 C1 시점에 **빈 스텁**(빈 리스트 반환)으로 먼저 배선해 두었으므로, 나중에 툴만 채워도 라우터를 다시 건드리지 않는다.
 
@@ -147,12 +153,13 @@ Rushhour/
     themes.py tools.py map_api.py llm.py graph.py app_streamlit.py
     nodes/season.py light.py                 # C1·C3·C7 추가
     tools_ext/plan_route.py find_light_spots.py   # C7
+    embeddings.py rag.py                     # DP14(구현됨): 임베딩 채널 · Chroma 색인 + search_places
   backend/                  # C4 신설
     main.py  api/chat.py api/tools.py api/health.py
     trace.py                # Tracer: langfuse | jsonl
-  scripts/01_csv_to_parquet.py 02_fetch_osm.py 03_snap_trees.py 04_ingest_light_docs.py
-  data/ (raw csv · processed parquet · osm/ · chroma/)
-  tests/test_tools.py test_router.py       # LLM 없이 돌아가야 함
+  scripts/01_csv_to_parquet.py 02_build_vector_db.py 03_eval_search_places.py   (예정: fetch_osm · snap_trees · ingest_light_docs)
+  data/ (raw csv · processed/ parquet · eval/search_places.jsonl · chroma/<채널>/ · osm/)
+  tests/test_tools.py test_router.py test_api.py test_rag.py   # LLM·임베딩 모델 없이 돌아가야 함
   docs/BE_DESIGN.md DECISIONS.md
   requirements.txt          # + fastapi uvicorn sse-starlette httpx pyarrow langgraph-checkpoint-sqlite langfuse
 ```
@@ -170,7 +177,12 @@ Rushhour/
 | DP7 | 모델 서버 | 1차 llama-server 27B, C4 후 vLLM 7B A/B |
 | DP8 | 제보 등록·HITL | 범위에서 제외(팀 결정) |
 | DP9 | MAX_HOPS | 10. 울타리 종료는 final_answer 부재로 식별 |
-| DP10 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 |
+| DP10 | 폴백 정책 | LLM 실패→규칙 intake·템플릿 resolver, 도구 예외→no_data(`tool_error`). 지도는 LLM 없이도 |
+| DP11 | SSE 구현 | 동기 `graph.stream` + StreamingResponse (SqliteSaver async 미지원) |
+| DP12 | develop 병합 | 추천 미션·superlative·핫스팟 focus 이식 |
+| DP13 | 같은 thread 다음 질문 | `new_turn_input`으로 턴 상태 리셋, visited 리듀서 `_add_or_reset` |
+| DP14 | 벡터DB·임베딩·search_places | Chroma (구,노선) 문서, 채널 5종 + 서명 검사, hash IDF, size_weight 0.02, eval 18건 |
+| DP15 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
 
 ## 8. 작업 순서와 분담 제안 (초안의 A/B/C 유지)
 
