@@ -12,10 +12,12 @@
 """
 
 import functools
+import math
 import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 
@@ -154,8 +156,107 @@ def check_coverage(district: str = "") -> dict:
     return {"covered": None, "count": len(dists), "districts": dists}
 
 
+@functools.lru_cache(maxsize=64)
+def district_centroid(gu: str):
+    """자치구 가로수들의 평균 좌표(대표 지점). 없으면 None."""
+    sub = _load()[_load()["구"] == gu]
+    if sub.empty:
+        return None
+    return (round(float(sub["위도"].mean()), 6), round(float(sub["경도"].mean()), 6))
+
+
+def _resolve_point(s: str):
+    """'lat,lon' 또는 서울 자치구명 → (위도, 경도). 해석 불가면 None."""
+    s = (s or "").strip()
+    if "," in s:
+        try:
+            la, lo = [float(x) for x in s.split(",")[:2]]
+            return (la, lo)
+        except ValueError:
+            pass
+    if s in available_districts():
+        return district_centroid(s)
+    return None
+
+
+def _seg_dist_km(lat, lon, a, b):
+    """각 점(lat,lon 시리즈)에서 선분 a→b까지 수직거리(km). 위경도 평면 근사."""
+    lat0 = (a[0] + b[0]) / 2.0
+    kx = 111.32 * math.cos(math.radians(lat0))
+    ky = 111.32
+    ax, ay, bx, by = a[1] * kx, a[0] * ky, b[1] * kx, b[0] * ky
+    px, py = lon.to_numpy() * kx, lat.to_numpy() * ky
+    dx, dy = bx - ax, by - ay
+    l2 = dx * dx + dy * dy
+    if l2 == 0:
+        return np.hypot(px - ax, py - ay)
+    t = np.clip(((px - ax) * dx + (py - ay) * dy) / l2, 0.0, 1.0)
+    return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+@tool
+def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) -> dict:
+    """출발→도착 직선 회랑(±width_m) 안에서 지나가는 테마 가로수길을 찾는다.
+
+    'A에서 B 가는 길에 어떤 테마 가로수길이 있나'에 답할 때 쓴다. 정확한 도보경로가
+    아니라 두 지점을 잇는 직선 주변(회랑)에서 만나는 도로다.
+
+    Args:
+        origin: 출발지. 서울 자치구명(예: '강남구') 또는 'lat,lon' 좌표.
+        dest: 목적지. 형식은 origin과 같다.
+        theme: 은행회피·벚꽃·그늘·이팝·은행단풍·메타세쿼이아 중 하나.
+        width_m: 회랑 반폭(m). 기본 500.
+
+    Returns:
+        {ok, kind:'route', theme, origin, dest, streets:[{구,노선,그루수,center}],
+         corridor:{line:[[lat,lon],[lat,lon]], bbox}, focus, note}
+        해석 불가/경유 나무 없음이면 ok=False 와 사유.
+    """
+    if theme not in THEMES:
+        return {"ok": False, "reason": f"모르는 테마: {theme}",
+                "valid_themes": list(THEMES.keys())}
+    a, b = _resolve_point(origin), _resolve_point(dest)
+    if a is None or b is None:
+        bad = [x for x, p in [(origin, a), (dest, b)] if p is None]
+        return {"ok": False, "kind": "route",
+                "reason": f"출발/도착을 좌표로 해석 못함: {bad}",
+                "hint": "서울 자치구명 또는 'lat,lon'으로 주세요",
+                "valid_districts_sample": list(available_districts())[:8]}
+    spec = THEMES[theme]
+    hit = _load()[_load()["수종"].isin(spec["species"])]
+    dist = _seg_dist_km(hit["위도"], hit["경도"], a, b)
+    within = hit[dist <= width_m / 1000.0]
+    if within.empty:
+        return {"ok": False, "kind": "route", "theme": theme,
+                "origin": origin, "dest": dest,
+                "reason": f"가는 길(±{width_m}m)에 {theme} 가로수가 거의 없음"}
+    top = (within.groupby(["구", "노선"]).size()
+           .sort_values(ascending=False).head(6).reset_index(name="그루수"))
+    streets = []
+    for _, r in top.iterrows():
+        seg = within[(within["구"] == r["구"]) & (within["노선"] == r["노선"])]
+        streets.append({
+            "구": str(r["구"]), "노선": str(r["노선"]), "그루수": int(r["그루수"]),
+            "center": [round(float(seg["위도"].mean()), 6), round(float(seg["경도"].mean()), 6)],
+        })
+    lats, lons = [a[0], b[0]], [a[1], b[1]]
+    bbox = [[round(min(lats), 6), round(min(lons), 6)],
+            [round(max(lats), 6), round(max(lons), 6)]]
+    return {
+        "ok": True, "kind": "route", "theme": theme, "mode": spec["mode"],
+        "season": spec["season"], "origin": origin, "dest": dest, "width_m": width_m,
+        "total_trees": int(len(within)), "streets": streets,
+        "corridor": {"line": [[round(a[0], 6), round(a[1], 6)],
+                              [round(b[0], 6), round(b[1], 6)]], "bbox": bbox},
+        "focus": {"center": [round(sum(lats) / 2, 6), round(sum(lons) / 2, 6)],
+                  "bbox": bbox, "primary": {"구": str(top.iloc[0]["구"]),
+                                            "노선": str(top.iloc[0]["노선"])}},
+        "note": spec["note"],
+    }
+
+
 # 에이전트에 넘길 도구 묶음
-TOOLS = [find_theme_streets, check_coverage]
+TOOLS = [find_theme_streets, check_coverage, route_theme_streets]
 
 
 if __name__ == "__main__":
