@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# venv
+.venv/
+venv/
+env/
+
+# 로컬 설정/비밀
+.env
+.streamlit/
+
+# 로그·임시
+*.log
+.DS_Store

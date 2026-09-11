@@ -1,0 +1,9 @@
+# 서울 가로수 테마길 에이전트 — 실행 의존성
+# 설치:  uv pip install -r requirements.txt   (또는 pip install -r requirements.txt)
+pandas>=2.0
+openpyxl>=3.1          # 원본 xlsx 재파싱용(선택). 앱은 data/seoul_tree_data.csv(CSV) 사용
+langchain-core>=1.0
+langgraph>=1.0
+langchain-openai>=1.0
+openai>=1.0            # 로컬 서버 모델 id 조회에 사용
+streamlit>=1.63        # UI (pydeck 동봉)
