@@ -1,0 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+@theme inline {
+  --color-background: #f5f3ef;
+  --color-foreground: #1a1a18;
+  --color-card: #ffffff;
+  --color-muted: #e8e5df;
+  --color-muted-foreground: #7a7770;
+  --color-primary: #2d6a4f;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #52b788;
+  --color-accent-soft: #d8f3dc;
+  --color-border: #dbd8d2;
+}
+
+body {
+  font-family: 'Noto Sans KR', 'Instrument Sans', sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+/* Hide scrollbars by default, show on hover */
+.chat-scroll {
+  scrollbar-width: none;
+}
+.chat-scroll::-webkit-scrollbar {
+  display: none;
+}
+.chat-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  font-family: 'Noto Sans KR', sans-serif;
+  background: #eae7e0;
+}
+
+.leaflet-control-zoom a {
+  color: var(--color-foreground) !important;
+  font-family: 'Instrument Sans', sans-serif !important;
+}
+
+/* Route tooltip */
+.route-tooltip {
+  background: var(--color-foreground);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.route-tooltip::before {
+  display: none;
+}

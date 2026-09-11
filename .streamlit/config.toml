@@ -1,0 +1,17 @@
+# 화면 테마 — Figma Make 시안에서 뽑은 값.
+# 이 파일이 없으면 브라우저의 다크 모드 설정에 따라 배경이 검게 잡힌다.
+[theme]
+base = "light"
+backgroundColor = "#F5F3EF"          # 시안 --color-background
+secondaryBackgroundColor = "#FFFFFF" # 패널
+textColor = "#1A1A18"                # 시안 --color-foreground
+primaryColor = "#2D6A4F"             # 딥그린 — 포커스링·슬라이더 등
+borderColor = "#DBD8D2"              # 시안 --color-border
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false

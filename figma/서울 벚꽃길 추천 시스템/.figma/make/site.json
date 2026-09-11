@@ -1,0 +1,10 @@
+{
+  "description": "Discover scenic walking routes based on seasonal themes and tree types in Seoul, with interactive maps and personalized recommendations.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,14 @@
+# 서울 가로수 테마길 에이전트 — 실행 의존성
+# 설치:  uv pip install -r requirements.txt   (또는 pip install -r requirements.txt)
+pandas>=2.0
+openpyxl>=3.1          # 원본 xlsx 재파싱용(선택). 앱은 data/seoul_tree_data.csv(CSV) 사용
+langchain-core>=1.0
+langgraph>=1.0
+langchain-openai>=1.0
+openai>=1.0            # 로컬 서버 모델 id 조회에 사용
+streamlit>=1.63        # 구 UI(app/app_streamlit.py) — 참고용으로 남겨 둠
+fastapi>=0.115         # 웹 프론트 API (api.py)
+uvicorn>=0.30          # 위 API 구동
+httpx>=0.27            # api.py /api/health 가 8080 에이전트 상태를 찌를 때
+numpy>=1.26            # api.py centerline() — 나무 좌표 → 노선 중심선(PCA)
+pillow>=10             # 수종 마커 그림 생성 (app/assets.py, Streamlit 구 UI 전용)
