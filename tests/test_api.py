@@ -41,7 +41,7 @@ def test_meta(client):
 def test_leaflet_ui_shell_and_dtos(client):
     """develop2에서 이식한 Leaflet 화면은 정본 도구 결과를 UI DTO로만 소비한다."""
     shell = client.get("/")
-    assert shell.status_code == 200 and "WALK SEOUL" in shell.text
+    assert shell.status_code == 200 and "GRUGRU" in shell.text
     overview = client.get("/ui/overview").json()
     assert overview["totals"]["districts"] == 25 and len(overview["themes"]) == 8
     assert all(t["paths"] and not t["points"] for t in overview["themes"])

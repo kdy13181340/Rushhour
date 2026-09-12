@@ -32,19 +32,19 @@ const SEASON_BG = {
 const SEASON_ORDER = ['spring', 'summer', 'autumn', 'winter', 'allseason'];
 
 /* 시안(figma2)의 8개 그대로 — 백엔드 THEMES에 크리스마스·상록이 추가돼 전부 답할 수 있다. */
-const QUICK_CHIPS = [
-  { label: '🌸 벚꽃 봄산책',     q: '벚꽃길 추천해줘' },
-  { label: '🌳 여름 그늘길',     q: '여름 그늘 시원한 길' },
-  { label: '🍂 가을 은행 단풍',  q: '가을 은행 단풍길' },
-  { label: '✿ 이팝 흰꽃길',      q: '이팝나무 흰꽃길' },
-  { label: '🌲 메타세쿼이아',    q: '메타세쿼이아 이국길' },
-  { label: '🎄 크리스마스 축제', q: '크리스마스 축제길' },
-  { label: '🌿 상록 소나무',     q: '사철 상록 소나무길' },
-  { label: '🟡 은행 열매 피하기', q: '은행 열매 밟지 않는 길' },
+const QUICK_CHIPS = [   // id: 클릭 즉시 흩뿌릴 테마(effects.js)
+  { label: '🌸 벚꽃 봄산책',     q: '벚꽃길 추천해줘',      id: 'cherry' },
+  { label: '🌳 여름 그늘길',     q: '여름 그늘 시원한 길',   id: 'shade' },
+  { label: '🍂 가을 은행 단풍',  q: '가을 은행 단풍길',      id: 'ginkgo-enjoy' },
+  { label: '✿ 이팝 흰꽃길',      q: '이팝나무 흰꽃길',       id: 'ipaeb' },
+  { label: '🌲 메타세쿼이아',    q: '메타세쿼이아 이국길',   id: 'metasequoia' },
+  { label: '🎄 크리스마스 축제', q: '크리스마스 축제길',     id: 'christmas' },
+  { label: '🌿 상록 소나무',     q: '사철 상록 소나무길',    id: 'evergreen' },
+  { label: '🟡 은행 열매 피하기', q: '은행 열매 밟지 않는 길', id: 'ginkgo-avoid' },
 ];
 
 const WELCOME =
-  '안녕하세요! 🌿 **서울 가로수 산책길 안내 시스템**입니다.\n\n' +
+  '안녕하세요! 🌿 **그루그루**입니다.\n\n' +
   '계절이나 원하는 분위기를 입력하시면 지도에 경로를 표시해드립니다.\n\n' +
   '- 봄 벚꽃길 추천해줘\n- 여름에 그늘 많고 시원한 길\n' +
   '- 가을 은행나무 단풍길\n- 메타세쿼이아 이국적인 터널길';
@@ -405,6 +405,8 @@ async function setActive(briefs) {
   state.hoverId = null;
   renderSeasons(); renderList(); renderLegend(); applySeason(); drawLines();
   flyToActive();
+  // 테마가 켜지는 순간 그 테마의 잎·꽃잎·눈을 한 번 흩뿌린다(effects.js). 경로 3종 등 정의 없는 id는 무시.
+  if (state.active[0]) sprinkle(state.active[0].id); else clearSprinkle();
   // 나무 좌표는 서울 전역 답변일 때만 따로 받아 온다(좁힌 답변은 이미 실려 왔다).
   await Promise.all(state.active.map(async (r) => {
     if (r.points) return;
@@ -469,19 +471,28 @@ async function readSse(response) {
 }
 
 /* ── 이벤트 ───────────────────────────────────────────────── */
+/* 테마를 아는 클릭(목록·칩·카드)은 답변을 기다리지 않고 그 자리에서 흩뿌린다 — 답변은 LLM이라
+   8초쯤 걸리는데 그때까지 아무 반응이 없으면 안 되는 줄 안다. setActive의 호출은 같은 테마면 건너뛴다. */
 byId('themelist').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-id]'); if (!b) return;
   const r = state.routes.find((x) => x.id === b.dataset.id);
-  if (r) sendQuery(r.name + ' 추천해줘');
+  if (!r || state.busy) return;
+  sprinkle(r.id);
+  sendQuery(r.name + ' 추천해줘');
 });
 byId('chips').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-i]'); if (!b) return;
-  sendQuery(QUICK_CHIPS[+b.dataset.i].q);
+  const c = QUICK_CHIPS[+b.dataset.i];
+  if (state.busy) return;
+  if (c.id) sprinkle(c.id);
+  sendQuery(c.q);
 });
 byId('chatlog').addEventListener('click', (e) => {
   const b = e.target.closest('.card'); if (!b) return;
   const r = state.routes.find((x) => x.id === b.dataset.id);
-  if (r) sendQuery(r.name + ' 더 자세히 알려줘');
+  if (!r || state.busy) return;
+  sprinkle(r.id);
+  sendQuery(r.name + ' 더 자세히 알려줘');
 });
 byId('q').addEventListener('input', (e) => {
   byId('send').disabled = !e.target.value.trim();
