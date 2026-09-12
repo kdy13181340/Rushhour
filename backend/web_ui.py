@@ -156,7 +156,9 @@ def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
 def result_routes(final: dict) -> list[dict]:
     """SSE final의 hits를 지도 카드로 변환한다. 실패/거절은 빈 목록이다."""
     hits = final.get("hits") or {}
-    theme = final.get("theme")
+    # 지도용 테마는 hits가 실제로 쓴 테마를 우선한다 — state.theme(계절 기본값)과 다를 수 있고,
+    # 그 경우 엉뚱한 테마로 좌표를 필터해 지도가 비어버린다(에이전트가 대안 테마를 고른 경우).
+    theme = hits.get("theme") or final.get("theme")
     if hits.get("ok") and hits.get("kind") == "route_plan":
         return route_plan_payload(hits, final.get("season", ""))
     if not hits.get("ok") or theme not in PRESENTATION:
