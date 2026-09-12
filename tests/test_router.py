@@ -223,7 +223,8 @@ def test_e2e_place_resolves_to_district(app, rag_index):
     """'양재천 근처 벚꽃길' — 전에는 자치구를 잃고 서울 전체를 뒤졌다."""
     out = run_one(app, "석촌호수 벚꽃 보고싶어")
     assert "places" in out["visited"] and out["place"] == "석촌호수"
-    assert out["district"] == "송파구" and out["hits"]["district"] == "송파구"
+    # 실패하면 벡터DB가 뭘 돌려줬는지 메시지에 남긴다(간헐 실패 진단용)
+    assert out["district"] == "송파구" and out["hits"]["district"] == "송파구",         f"place_hits={out.get('place_hits')} rag={__import__('rag').rag_status()}"
     assert out["verdict"] == "match"
     assert "석촌호수" in out["final_answer"] and "송파구" in out["final_answer"]  # 해석을 밝힌다
 

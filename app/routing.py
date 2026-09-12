@@ -31,8 +31,11 @@ from themes import THEMES, themes_for_season
 ROOT = Path(__file__).resolve().parents[1]
 OSM_DIR = Path(os.environ.get("OSM_DIR", ROOT / "data" / "osm"))
 
-ALPHA = 0.55          # 테마 경유: 가득 심긴 길의 체감 길이를 45%로. 최대 우회 배수 ≈ 1/(1−α) ≈ 2.2
-BETA = 2.0            # 회피: 가득 심긴 길의 체감 길이를 3배로
+# 계수는 표본 80쌍(0.5~5km)으로 흔들어 보고 정했다 — scripts/06_eval_routes.py, DECISIONS DP23.
+ALPHA = 0.8           # 테마 경유: 가득 심긴 길의 체감 길이를 20%로. 0.55는 우회 예산을 0.8%만 쓰고
+                      # 나무를 1.9배만 지나 너무 소심했다. 0.8에서 2.3~3.3배, 우회 중앙값 4% 이내.
+                      # 0.85 이상은 우회 꼬리만 길어지고 개선이 멎는다(데이터 한계)
+BETA = 3.0            # 회피: 가득 심긴 길의 체감 길이를 4배로. 피할 나무를 92% 줄인다(β=2는 86%)
 SPACING_M = 8.0       # 가로수 간격 — 밀도 1.0의 기준
 
 # 도로 종류별 도보 계수(DP19). OSM walk 네트워크는 보도(48,186)·산책로(7,528)·계단(4,310)부터
@@ -48,6 +51,7 @@ WALK_COST = {
     "trunk": 3.0, "trunk_link": 3.0, "busway": 3.0, "motorway_link": 3.0,
 }
 WALK_DEFAULT = 1.3
+WALK_GAMMA = 1.0      # 도보 계수를 얼마나 세게 쓸지. 0이면 거리만, 1이면 표의 값 그대로(scripts/06으로 잼)
 WALK_KMH = 4.0        # 산책 속도(km/h). 거리만 주면 감이 안 온다 — 5.5km는 걸어서 80분이다.
 # '큰길'로 볼 종류 — 답변·카드에 보행자 길 비율을 말할 때 쓴다
 BIG_ROAD = {"trunk", "trunk_link", "primary", "primary_link", "secondary", "secondary_link", "busway"}
@@ -113,7 +117,7 @@ def _graph():
         hw = edges["highway"].fillna("").astype(str).to_numpy()
     else:   # 도로 종류를 안 담은 옛 산출물 — 계수를 못 쓰고 거리만 본다(scripts/04 재실행 권장)
         hw = np.full(len(edges), "", dtype=object)
-    walk = np.array([WALK_COST.get(h, WALK_DEFAULT) for h in hw], dtype=float)
+    walk = np.array([WALK_COST.get(h, WALK_DEFAULT) for h in hw], dtype=float) ** WALK_GAMMA
     big = np.array([h in BIG_ROAD for h in hw], dtype=bool)
     cap = np.maximum(length / SPACING_M, 1.0)                  # 그 길이에 심을 수 있는 그루 수
     bonus = {k: np.clip(edges[k].to_numpy(dtype=float) / cap, 0.0, 1.0) for k in THEMES}
@@ -139,7 +143,7 @@ def _graph():
                                        * math.cos(math.radians(float(nodes["위도"].mean())))])),
         "ui": ui[sel], "vi": vi[sel], "length": length[sel],
         # cost = 체감 길이(길이×도보계수). 경로를 고르는 기준이고, 답변의 거리는 length를 쓴다.
-        "cost": (length * walk)[sel], "big": big[sel], "hw": hw[sel],
+        "cost": (length * walk)[sel], "walk": walk[sel], "big": big[sel], "hw": hw[sel],
         "has_highway": "highway" in edges.columns,
         "bonus": {k: v[sel] for k, v in bonus.items()},
         "trees": {k: v[sel] for k, v in trees_on.items()},

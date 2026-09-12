@@ -13,12 +13,14 @@
 data/seoul_tree_data.csv       서울 가로수 위치 원본(28.7만 그루, cp949)
 data/processed/*.parquet       scripts/01 산출물(정제본, gitignore)
 data/eval/search_places.jsonl  검색 품질 평가 질의 18건(표기 15·의미 3)
+data/eval/route_pairs.jsonl    경로 평가용 출발·도착 80쌍(무작위·거리대별)
 data/chroma/<채널>/            벡터DB 인덱스(scripts/02 산출물, gitignore)
 scripts/01_csv_to_parquet.py   CSV→Parquet + 관리기관 행 12,946건의 구 복원      — A
 scripts/02_build_vector_db.py  (구,노선) 문서 1,780건 → Chroma 색인               — BE
 scripts/03_eval_search_places.py  검색 품질 hit@k·MRR                              — BE
 scripts/04_fetch_osm.py        서울 보행 도로망(OSM) 1회 내려받기 → data/osm/       — BE
 scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별 테마 점수         — BE
+scripts/06_eval_routes.py      경로 가중치 검증(약속을 지키는지) — data/eval/route_pairs  — BE
 app/
   themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A

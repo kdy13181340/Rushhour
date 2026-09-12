@@ -99,8 +99,11 @@ def test_resolve_point_accepts_coords_and_district():
 
 
 def test_resolve_point_uses_vector_search_for_places(rag_index):
+    # 실패하면 검색이 뭘 돌려줬는지 메시지에 남긴다(간헐 실패를 한 번에 진단하려고)
+    import rag
+    probe = rag.search_places.invoke({"query": "석촌호수", "k": 3})
     pt, name = R.resolve_point("석촌호수")
-    assert pt is not None and "송파구" in name
+    assert pt is not None and "송파구" in name, f"검색 결과={probe}"
 
 
 # ── 도보 계수: 같은 거리면 큰길보다 보도로 (DP19) ──────────────────────────
