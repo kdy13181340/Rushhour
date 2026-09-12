@@ -14,5 +14,7 @@ httpx>=0.27              # UI → API 클라이언트, /health 모델 서버 확
 streamlit>=1.63          # UI (pydeck 동봉)
 pytest>=8                # tests/ (LLM 없이 실행 가능)
 chromadb>=1.0            # 벡터DB (app/rag.py, scripts/02). 인덱스는 data/chroma/<채널>/
+scipy>=1.11              # 경로 탐색 (app/routing.py — 희소행렬 다익스트라 + KD트리)
 # 선택: langfuse>=3              # TRACE_BACKEND=langfuse 일 때만
 # 선택: sentence-transformers>=3 # EMBED_CHANNEL=st (로컬 CPU 임베딩, torch 포함 ~1GB). 8082 서버가 있으면 불필요
+# 선택: osmnx>=2            # scripts/04 도로망 내려받기 1회용. 서버 실행에는 불필요(Parquet만 읽음)

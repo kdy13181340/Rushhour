@@ -91,10 +91,51 @@ def overview_payload() -> dict:
                        "districts": len(available_districts())}}
 
 
+ROUTE_PRESENTATION = {
+    # 경로 대안의 화면 표현. 최단은 테마가 없으므로 중립색을 준다.
+    "shortest": {"id": "route-shortest", "emoji": "🧭", "color": "#4a5b6b"},
+    "theme": {"id": "route-theme", "emoji": "🌳", "color": "#2d6a4f"},
+    "avoid": {"id": "route-avoid", "emoji": "🚫", "color": "#e2574c"},
+}
+
+
+def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
+    """plan_route 결과(경로 3가지) → 화면이 그대로 그리는 카드 목록.
+
+    기존 테마 카드와 같은 모양(paths·color·name)이라 UI JS를 고치지 않아도 선이 그려진다.
+    경로는 이미 좌표열이므로 중심선 계산(_centerline)이 필요 없다.
+    """
+    out = []
+    for r in hits.get("routes", []):
+        meta = ROUTE_PRESENTATION.get(r["kind"], ROUTE_PRESENTATION["theme"])
+        spec = THEMES.get(r.get("theme") or "", {})
+        if r.get("theme") and r["theme"] in PRESENTATION and r["kind"] == "theme":
+            meta = {**meta, "color": PRESENTATION[r["theme"]]["color"],
+                    "emoji": PRESENTATION[r["theme"]]["emoji"]}
+        detour = f" · 최단 대비 +{r['detour_pct']}%" if r["detour_pct"] else " · 최단"
+        trees = ""
+        if r.get("theme"):
+            verb = "피함" if r["kind"] == "avoid" else "지남"
+            trees = f" · {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
+        out.append({
+            "id": meta["id"], "key": r["kind"], "name": r["label"], "emoji": meta["emoji"],
+            "color": meta["color"], "mode": "route",
+            "season": (spec.get("seasons") or [season or "autumn"])[0],
+            "seasonLabel": f"{r['distance_m']:,}m{detour}{trees}",
+            "district": f"{hits.get('origin_name', '')} → {hits.get('dest_name', '')}",
+            "roads": r.get("streets", [])[:3], "treeCount": r.get("theme_trees", 0),
+            "streets": [], "paths": [r["path"]] if r.get("path") else [], "points": [],
+            "focus": {}, "note": r.get("note", "") or hits.get("note", ""),
+        })
+    return out
+
+
 def result_routes(final: dict) -> list[dict]:
     """SSE final의 hits를 지도 카드로 변환한다. 실패/거절은 빈 목록이다."""
     hits = final.get("hits") or {}
     theme = final.get("theme")
+    if hits.get("ok") and hits.get("kind") == "route_plan":
+        return route_plan_payload(hits, final.get("season", ""))
     if not hits.get("ok") or theme not in PRESENTATION:
         return []
     # route 결과도 streets 배열은 find_theme_streets와 같은 한국어 키를 유지한다.

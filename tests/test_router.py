@@ -255,6 +255,41 @@ def test_e2e_place_search_exception_falls_back(app, monkeypatch, rag_index):
     assert out["place_hits"] == [] and out["verdict"] == "match"   # 검색만 실패, 답변은 나온다
 
 
+# ── route 노드: 도로망이 있으면 3가지, 없으면 회랑 (DP17) ──────────────────
+def test_route_node_falls_back_to_corridor_without_osm():
+    """기본 상태(도로망 없음)에서는 기존 회랑 방식으로 답한다 — 준비 안 된 PC에서도 답이 나온다."""
+    import routing as R
+    assert R.osm_ready() is False
+    out = G.route_node({"theme": "벚꽃", "origin": "강남구", "dest": "송파구", "season": "spring"})
+    assert out["hits"]["kind"] == "route" and out["verdict"] == "match"
+
+
+def test_route_node_uses_plan_route_when_osm_ready(osm_net):
+    """도로망이 있으면 경로 3가지로 답한다. 테마를 말했으면 그게 2번 대안."""
+    out = G.route_node({"theme": "벚꽃", "origin": "37.5,127.0", "dest": "37.5,127.01",
+                        "season": "spring"})
+    hits = out["hits"]
+    assert hits["kind"] == "route_plan" and out["verdict"] == "match"
+    kinds = [r["kind"] for r in hits["routes"]]
+    assert kinds[0] == "shortest" and "theme" in kinds
+    assert all(r["path"] for r in hits["routes"])
+
+
+def test_route_node_no_theme_still_answers(osm_net):
+    """'A에서 B 가는 길'처럼 테마가 없어도 3가지는 계절이 정한다 — 거절하지 않는다."""
+    out = G.route_node({"theme": "unknown", "origin": "37.5,127.0", "dest": "37.5,127.01",
+                        "season": "autumn"})
+    assert out["hits"]["kind"] == "route_plan" and out["verdict"] == "match"
+    final = G.resolver_node({**out, "theme": "unknown", "verdict": "match",
+                             "season": "autumn", "question": "강남구에서 송파구 가는 길"})
+    assert final["resolver_mode"] == "template" and "경로" in final["final_answer"]
+
+
+def test_router_sends_route_questions_before_theme_refusal():
+    s = {"season": "autumn", "theme": "unknown", "origin": "강남구", "dest": "송파구"}
+    assert route_from_supervisor(s) == "route"
+
+
 def test_e2e_fence_terminates(monkeypatch):
     """resolver가 final_answer를 못 채우는 결함이 있어도 울타리로 끝난다."""
     monkeypatch.setattr(G, "resolver_node", lambda s: {"visited": ["resolver"]})
