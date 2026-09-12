@@ -265,8 +265,18 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).a
 
 const restLayer = L.layerGroup().addTo(map);    // 켜지지 않은 경로(회색 점선)
 const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로
+const endLayer = L.layerGroup().addTo(map);     // 출발·도착 마커(경로일 때만)
 const treeLayer = L.layerGroup().addTo(map);
 const spotLayer = L.layerGroup();               // 공공자료 합본의 나무 — 켠 테마를 따라간다
+
+/** 출발/도착 핀 — 색 점 + 라벨. 경로 카드(r.origin·r.dest)가 좌표를 줄 때만. */
+function endIcon(label, cls) {
+  return L.divIcon({
+    className: 'end-pin ' + cls,
+    html: `<span class="end-dot"></span><span class="end-lbl">${label}</span>`,
+    iconSize: [0, 0], iconAnchor: [7, 7],
+  });
+}
 
 const isActive = (r) => state.active.some((a) => a.id === r.id);
 
@@ -298,6 +308,13 @@ function setHover(id) {
 function drawLines() {
   restLayer.clearLayers();
   activeLayer.clearLayers();
+  endLayer.clearLayers();
+  // 출발·도착 마커 — 켜진 경로 카드가 좌표를 줄 때만(경로 질의). 한 번만 찍는다.
+  const ep = state.active.find((r) => r.origin && r.dest);
+  if (ep) {
+    L.marker(ep.origin, { icon: endIcon('출발 · ' + (ep.originName || ''), 'start'), interactive: false, zIndexOffset: 1000 }).addTo(endLayer);
+    L.marker(ep.dest, { icon: endIcon('도착 · ' + (ep.destName || ''), 'end'), interactive: false, zIndexOffset: 1000 }).addTo(endLayer);
+  }
   state.routes.forEach((r) => {
     r._lines = [];
     if (isActive(r)) return;

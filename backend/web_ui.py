@@ -84,7 +84,13 @@ def theme_payload(theme: str, district: str = "", *, include_points: bool = Fals
     for street in streets:
         if street["gu"] not in districts:
             districts.append(street["gu"])
+    # 회랑 경로(route_theme_streets)면 출발→도착 직선 양끝을 마커용으로 넘긴다.
+    corridor = (hits.get("corridor") or {}).get("line") or []
+    endpoints = {"origin": corridor[0], "dest": corridor[1],
+                 "originName": hits.get("origin", ""), "destName": hits.get("dest", "")} \
+        if len(corridor) >= 2 else {"origin": None, "dest": None, "originName": "", "destName": ""}
     return {
+        **endpoints,
         "id": meta["id"], "key": theme, "name": spec["label"], "emoji": meta["emoji"],
         "color": meta["color"], "mode": spec["mode"], "season": spec["seasons"][0],
         "seasonLabel": spec["season"], "district": district or " · ".join(districts) or "서울 전역",
@@ -167,6 +173,9 @@ def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
             "district": f"{hits.get('origin_name', '')} → {hits.get('dest_name', '')}",
             "roads": r.get("streets", [])[:3], "treeCount": r.get("theme_trees", 0),
             "streets": [], "paths": [r["path"]] if r.get("path") else [], "points": [],
+            # 출발/도착 좌표·이름 — UI가 지도에 '출발'·'도착' 마커를 찍는다(직관성).
+            "origin": hits.get("origin"), "dest": hits.get("dest"),
+            "originName": hits.get("origin_name", ""), "destName": hits.get("dest_name", ""),
             "focus": {}, "note": r.get("note", "") or hits.get("note", ""),
         })
     return out

@@ -442,9 +442,16 @@ def resolve_point(text: str) -> tuple[tuple[float, float] | None, str]:
             return (la, lo), s
         except ValueError:
             pass
-    from tools import available_districts, district_centroid
+    from tools import _district_of, _geocode_kakao, available_districts, district_centroid
     if s in available_districts():
         return district_centroid(s), s
+    # 장소/랜드마크는 카카오 지오코딩으로 '실제 위치'를 먼저 잡는다(지도 출발/도착 마커 정확도).
+    # RAG(아래)는 가장 비슷한 가로수 노선의 중심을 줘서 실제 지점과 어긋날 수 있다 — 카카오 우선.
+    # 키가 없으면(CI 등) None → 아래 RAG로 폴백. 이름엔 해소된 자치구를 붙인다('송파구 석촌호수').
+    pt = _geocode_kakao(s)
+    if pt is not None:
+        gu = _district_of(s)
+        return pt, (f"{gu} {s}" if gu else s)
     try:
         from rag import search_places
         res = search_places.invoke({"query": s, "k": 1})
