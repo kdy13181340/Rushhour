@@ -119,7 +119,10 @@ def test_e2e_no_data(app, monkeypatch):
     monkeypatch.setattr(G, "find_theme_streets", types.SimpleNamespace(
         invoke=lambda args: {"ok": False, "reason": "테스트: 데이터 없음"}))
     out = run_one(app, "강남구 벚꽃길")
-    assert out["verdict"] == "no_data" and "데이터 없음" in out["final_answer"]
+    # no_data → 친절 거절. 내부 사유는 hits로 추적하되 사용자 문구엔 노출하지 않는다.
+    assert out["verdict"] == "no_data" and out["resolver_mode"] == "refuse"
+    assert out["hits"]["reason"] == "테스트: 데이터 없음"
+    assert out["final_answer"] and "테스트" not in out["final_answer"]
 
 
 def test_e2e_tool_exception_falls_back_to_no_data(app, monkeypatch):
@@ -130,8 +133,10 @@ def test_e2e_tool_exception_falls_back_to_no_data(app, monkeypatch):
         raise RuntimeError("테스트: 데이터 파일 손상")
     monkeypatch.setattr(G, "find_theme_streets", types.SimpleNamespace(invoke=boom))
     out = run_one(app, "강남구 벚꽃길")
+    # tool_error는 hits로 추적(관찰성)하되, 사용자 답변엔 기술 오류명을 노출하지 않는다.
     assert out["verdict"] == "no_data" and out["hits"]["tool_error"] == "RuntimeError"
-    assert out["resolver_mode"] == "refuse" and "RuntimeError" in out["final_answer"]
+    assert out["resolver_mode"] == "refuse"
+    assert out["final_answer"] and "RuntimeError" not in out["final_answer"]
 
 
 # ── 멀티턴: 체크포인터가 있을 때 같은 thread의 다음 질문 (DP13) ─────────────
