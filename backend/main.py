@@ -238,8 +238,13 @@ def chat(body: ChatIn):
                     patch = patch or {}
                     tracer.event("node", {"thread_id": thread_id, "name": node,
                                           "keys": sorted(k for k in patch if k != "visited")})
-                    # 좌표 무거운 hits는 노드 이벤트에선 요약만, final에서 전체
-                    slim = {k: v for k, v in patch.items() if k not in ("visited", "hits")}
+                    # 에이전트 도구 호출 스텝은 궤적·UI 상태줄용으로 따로 남긴다(🔧 tool ✓)
+                    for step in patch.get("tool_steps") or []:
+                        tracer.event("tool_call", {"thread_id": thread_id, "tool": step["tool"],
+                                                   "ok": step["ok"]})
+                    # 좌표 무거운 hits·에이전트 messages(원본 BaseMessage)는 노드 이벤트에서 제외.
+                    # hits는 final에서 전체, tool_steps(요약)는 그대로 흘려 UI가 진행을 보여준다.
+                    slim = {k: v for k, v in patch.items() if k not in ("visited", "hits", "messages")}
                     if "hits" in patch:
                         slim["hits_ok"] = bool((patch["hits"] or {}).get("ok"))
                     yield _sse("node", {"name": node, "patch": slim})

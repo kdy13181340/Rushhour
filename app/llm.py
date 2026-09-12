@@ -46,3 +46,13 @@ def get_chat_model(max_tokens: int = 512, temperature: float = 0.0):
     return ChatOpenAI(base_url=AGENT_BASE_URL, api_key="sk-noop",
                       model=_resolve_local_model(), temperature=temperature,
                       max_tokens=max_tokens, extra_body=NO_THINK)
+
+
+def get_agent_model(tools: list, max_tokens: int = 512, temperature: float = 0.0):
+    """tool-calling 에이전트용 — get_chat_model에 도구를 bind_tools 해서 반환.
+
+    tool_choice는 지정하지 않는다(auto). 로컬 llama-server 빌드는 auto만 집행하며,
+    도구 호출(FC)에는 `--jinja` 기동이 필요하다(코드 아님 — deploy/start_agent_server.sh 참조).
+    모델이 도구를 안/못 부르면 graph의 supervisor 규칙 폴백이 답을 보장하므로 auto로 충분하다.
+    """
+    return get_chat_model(max_tokens=max_tokens, temperature=temperature).bind_tools(tools)
