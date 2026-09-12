@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -25,7 +25,13 @@
     </div>
     <nav class="seasons" id="seasons" aria-label="현재 표시 중인 계절"></nav>
     <div class="stats" id="stats"></div>
+    <!-- 모바일 전용: 테마 목록 드로어 토글(데스크톱에선 .m-toggle이 display:none) -->
+    <button type="button" class="m-toggle" id="side-toggle" aria-controls="themelist"
+            aria-expanded="false">☰ 목록</button>
   </header>
+
+  <!-- 모바일 드로어 뒤 어둠막(바깥 탭하면 닫힘). 데스크톱·비열림 상태에선 display:none -->
+  <div class="scrim" id="scrim"></div>
 
   <!-- ── 본문 3분할 ───────────────────────────────────────── -->
   <div class="body">
@@ -85,6 +91,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="trees.js?v=4"></script>
 <script src="effects.js?v=4"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

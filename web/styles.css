@@ -338,3 +338,42 @@ input{font:inherit}
 .leaflet-tile-pane {
   filter: saturate(0.55) brightness(1.12) contrast(0.88) sepia(0.14);
 }
+
+/* ── 모바일 대응 (≤768px) ───────────────────────────────────────────────
+   데스크톱 규칙은 위에서 그대로 둔다. 아래 @media와, 기본 display:none인 토글·스크림만
+   추가했다 — 넓은 화면에선 이 규칙들이 켜지지 않아 기존 웹 동작은 한 글자도 바뀌지 않는다. */
+.m-toggle{ display:none; }                 /* 데스크톱: 숨김. 모바일에서만 노출 */
+.scrim{ display:none; }                    /* 드로어 뒤 어둠막 — 모바일·열렸을 때만 */
+
+@media (max-width:768px){
+  /* 헤더: 계절탭·통계는 숨기고, 목록 여는 ☰ 버튼을 노출 */
+  .topbar{ padding:0 12px; gap:8px; }
+  .seasons, .stats{ display:none; }
+  .m-toggle{
+    display:inline-flex; align-items:center; gap:6px; margin-left:auto;
+    color:#fff; background:rgba(255,255,255,.14); border-radius:9px;
+    padding:7px 12px; font-size:13px; font-weight:600;
+  }
+
+  /* 본문: 가로 3단 → 세로 스택. 지도 위, 채팅 아래(42vh). 목록은 드로어로 뗀다. */
+  .body{ flex-direction:column; }
+  .mapwrap{ flex:1; min-height:0; }
+  .chat{ width:auto; height:42vh; flex-shrink:0; border-top:1px solid var(--muted); }
+  .chat-scroll{ flex:1; min-height:0; }
+
+  /* 좌측 테마 목록 → 왼쪽 드로어(기본 화면 밖, side-open일 때 미끄러져 들어옴) */
+  .side{
+    position:absolute; z-index:1500; top:var(--head-h); bottom:0; left:0;
+    width:82%; max-width:300px; transform:translateX(-100%);
+    transition:transform .25s ease; box-shadow:2px 0 16px rgba(0,0,0,.22);
+  }
+  .shell.side-open .side{ transform:none; }
+  .scrim{
+    position:fixed; inset:0; z-index:1480; background:rgba(0,0,0,.35);
+  }
+  .shell.side-open .scrim{ display:block; }
+
+  /* 터치 타깃·팝오버 폭 보정 */
+  .trow{ padding:12px; }
+  .rf-pop{ left:12px; right:12px; width:auto; }
+}

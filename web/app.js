@@ -694,6 +694,19 @@ rf.dest.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventD
 rf.origin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rf.dest.focus(); } });
 rf.send.addEventListener('click', rfSend);
 
+/* ── 모바일 테마목록 드로어 (≤768px에서만 보이는 ☰ 버튼으로 연다) ──────────────
+   데스크톱에선 #side-toggle이 display:none이라 눌릴 일이 없고, .side-open 클래스에
+   걸린 스타일도 @media 안에만 있어 넓은 화면 동작에는 영향이 없다(추가형). */
+const shellEl = document.querySelector('.shell');
+const setSide = (open) => {
+  shellEl.classList.toggle('side-open', open);
+  const t = byId('side-toggle'); if (t) t.setAttribute('aria-expanded', String(open));
+};
+byId('side-toggle')?.addEventListener('click', () => setSide(!shellEl.classList.contains('side-open')));
+byId('scrim')?.addEventListener('click', () => setSide(false));
+// 목록에서 경로를 고르면 드로어를 닫아 지도를 바로 보여 준다.
+byId('themelist').addEventListener('click', (e) => { if (e.target.closest('button[data-id]')) setSide(false); });
+
 /* ── 시작 ─────────────────────────────────────────────────── */
 (async function boot() {
   const o = await (await fetch('/ui/overview')).json();
