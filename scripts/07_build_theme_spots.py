@@ -21,6 +21,7 @@
 """
 
 import argparse
+import math
 import re
 import sys
 from pathlib import Path
@@ -306,11 +307,28 @@ def fix_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _near_row(path, lat, lon, km: float = 1.2) -> bool:
+    """얻은 형상이 **그 행이 말하는 그 길**인지. 도로 이름은 전국에서 겹친다(‘중앙로’ 등).
+
+    이름만 믿으면 부산 중앙로의 형상이 대전 행에 붙는다. 실측으로 걸러 보니 이름이 같은데
+    딴 동네인 경우가 163/404였다 — 그래서 행 자신의 좌표에서 km 안에 오는 형상만 받는다.
+    """
+    for seg in path:
+        for y, x in seg:
+            if math.hypot((y - lat) * 111.32, (x - lon) * 88.8) <= km:
+                return True
+    return False
+
+
 def attach_shapes(df: pd.DataFrame) -> pd.DataFrame:
-    """이름을 맞춘 행에 **그 길의 실제 형상**을 담는다.  [DP24]
+    """행에 **그 길의 실제 보행 형상**을 담는다.  [DP24]
 
     합본은 노선당 좌표가 한 점뿐이라 '석촌호수 1,660그루'가 점 하나로 찍힌다. 형상이 있으면
     구간을 따라 보여 줄 수 있다 — 개별 나무 위치를 아는 게 아니라 **어느 구간인지**를 표시하는 것이다.
+    시작·종료만 있는 행은 화면에서 직선으로 잇는 수밖에 없는데, 직선은 블록을 가로지른다.
+    도로망에서 같은 이름을 찾아 두면 굽은 길은 굽은 대로 나온다.
+
+    가로수 대장 행은 건너뛴다 — 나무 한 그루씩 좌표가 있어 지도에 따로 그리고 있다.
     """
     try:
         import routing as R
@@ -318,16 +336,23 @@ def attach_shapes(df: pd.DataFrame) -> pd.DataFrame:
             return df
     except Exception:  # noqa: BLE001
         return df
-    shapes, hit = [], 0
+    shapes, by_name, hit = [], 0, 0
     for _, r in df.iterrows():
+        if "가로수 대장" in str(r.get("출처") or ""):
+            shapes.append(None)
+            continue
         m = re.search(r"\(([^:]+):(.+)\)", str(r.get("매칭") or ""))
         path = R.way_path(m.group(2), max_paths=2) if m else []
+        if not path and str(r.get("노선명") or "") and not pd.isna(r.get("위도")):
+            cand = R.way_path(str(r["노선명"]), max_paths=2)
+            if cand and _near_row(cand, float(r["위도"]), float(r["경도"])):
+                path, by_name = cand, by_name + 1
         if path:
             hit += 1
         shapes.append(path or None)
     df = df.copy()
     df["구간형상"] = shapes
-    print(f"  구간 형상을 얻은 노선 {hit}/{len(df)}")
+    print(f"  구간 형상을 얻은 노선 {hit}/{len(df)} (이름 매칭 {hit - by_name} · 노선명+거리 {by_name})")
     return df
 
 
@@ -392,8 +417,8 @@ def main() -> None:
         print(f"(도로망 없음: {type(exc).__name__} — OSM 이름 매칭은 건너뛴다)")
 
     b = from_maple(pools)
-    b = attach_shapes(b)
-    out = mark_duplicates(fix_length(_harmonize(pd.concat([c, b, d, a], ignore_index=True))))
+    out = attach_shapes(
+        mark_duplicates(fix_length(_harmonize(pd.concat([c, b, d, a], ignore_index=True)))))
 
     print(f"A 서울 가로수 대장   {len(a):6,}개 · {int(a['그루수'].sum()):9,}그루 (좌표 있음)")
     print(f"C 전국 표준데이터    {len(c):6,}개 · {int(c['그루수'].sum()):9,}그루 · "

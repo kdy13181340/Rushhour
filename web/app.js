@@ -107,9 +107,12 @@ function pickSegment(s) {
   return km > 0.02 && km < 5 ? s.se : null;
 }
 
-/* 구간을 따라 n개를 고르게 — 길이에 비례해 나눠 짚는다. */
+/* 구간을 따라 n개를 고르게 — 길이에 비례해 나눠 짚고, 길 양옆으로 번갈아 세운다.
+   가로수는 길 가장자리에 줄지어 서 있다. 중심선 위에 겹쳐 찍으면 한 줄로 뭉쳐 보인다. */
+const SIDE_M = 0.011;                       // 중심선에서 약 11m — 인도 폭 정도
+
 function spreadAlong(line, n) {
-  if (n <= 1 || line.length < 2) return [line[Math.floor(line.length / 2)]];
+  if (line.length < 2) return [line[0]];
   const seg = [];
   let total = 0;
   for (let i = 1; i < line.length; i += 1) {
@@ -124,14 +127,57 @@ function spreadAlong(line, n) {
     for (let i = 0; i < seg.length; i += 1) {
       if (want <= seg[i] || i === seg.length - 1) {
         const t = seg[i] ? Math.min(1, want / seg[i]) : 0;
-        out.push([line[i][0] + (line[i + 1][0] - line[i][0]) * t,
-                  line[i][1] + (line[i + 1][1] - line[i][1]) * t]);
+        const lat = line[i][0] + (line[i + 1][0] - line[i][0]) * t;
+        const lng = line[i][1] + (line[i + 1][1] - line[i][1]) * t;
+        // 그 토막의 방향을 90° 돌려 좌·우로 번갈아 — 길을 낀 가로수 줄처럼 보이게
+        const dy = (line[i + 1][0] - line[i][0]) * 111.32;
+        const dx = (line[i + 1][1] - line[i][1]) * 88.8;
+        const len = Math.hypot(dy, dx) || 1;
+        const side = k % 2 ? 1 : -1;
+        out.push([lat + (side * SIDE_M * -dx) / len / 111.32,
+                  lng + (side * SIDE_M * dy) / len / 88.8]);
         break;
       }
       want -= seg[i];
     }
   }
   return out;
+}
+
+function lineKm(line) {
+  let km = 0;
+  for (let i = 1; i < line.length; i += 1) {
+    km += Math.hypot((line[i][0] - line[i - 1][0]) * 111.32,
+                     (line[i][1] - line[i - 1][1]) * 88.8);
+  }
+  return km;
+}
+
+/* 화면에 걸치는 부분만 남긴다. 3km짜리 길에 나무 몇 그루를 고르게 흩으면, 확대했을 때
+   대부분이 화면 밖에 떨어져 눈앞의 길은 텅 빈다 — 보이는 토막에 몰아 줘야 줄지어 보인다. */
+function clipLine(line, bounds) {
+  let lo = -1;
+  let hi = -1;
+  for (let i = 0; i < line.length; i += 1) {
+    if (bounds.contains(line[i])) { if (lo < 0) lo = i; hi = i; }
+  }
+  if (lo < 0) return line;                                  // 다 밖이면 통째로
+  const a = Math.max(0, lo - 1);                            // 화면 경계를 넘어 한 점씩
+  const b = Math.min(line.length - 1, hi + 1);
+  return b - a >= 1 ? line.slice(a, b + 1) : line;
+}
+
+/* 몇 그루를 그릴지는 **줌**이 정한다. 나무 그림 사이가 화면에서 늘 비슷하게 떨어지도록
+   목표 간격을 픽셀로 잡고 미터로 환산한다 — 확대하면 촘촘해지고, 축소하면 한 노선 한 그루가 된다.
+   예전에는 그루수만 봐서(√c/6) 63그루짜리가 어느 줌에서든 **한 그루**로 그려졌다.
+   아는 그루수보다 많이 그리지는 않는다 — 6그루 길에 20그루를 세울 수는 없다. */
+function treeCount(s, line) {
+  const mPerPx = (156543.03 * Math.cos((map.getCenter().lat * Math.PI) / 180))
+                 / 2 ** map.getZoom();
+  const gapKm = (mPerPx * 58) / 1000;                       // 아이콘 하나 반쯤 띄운 간격
+  const n = Math.round(lineKm(line) / gapKm);
+  const known = s.c === null || s.c === undefined ? 26 : Math.max(1, s.c);
+  return Math.max(1, Math.min(26, n, known));
 }
 
 /* 켠 테마에 맞는 나무를 받아 둔다. 토글은 두지 않는다 — 물은 것만 보여 주면 된다. */
@@ -163,8 +209,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).a
 const restLayer = L.layerGroup().addTo(map);    // 켜지지 않은 경로(회색 점선)
 const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로
 const treeLayer = L.layerGroup().addTo(map);
-const spotLayer = L.layerGroup();               // 공공자료 합본 나무(점) — 토글로 켠다
-// 전국 수천 개를 DOM 마커로 그리면 지도가 멈춘다. 캔버스에 한 번에 그린다.
+const spotLayer = L.layerGroup();               // 공공자료 합본의 나무 — 켠 테마를 따라간다
 
 const isActive = (r) => state.active.some((a) => a.id === r.id);
 
@@ -236,6 +281,24 @@ function visibleTrees(points, cap) {
   return out;
 }
 
+/* 칸 수만큼의 격자가 화면을 덮도록 한 칸의 크기(위도·경도)를 정한다.
+   화면에서 정사각형이 되게 — 경도 1도는 위도 1도보다 좁다(서울에서 약 0.79배). */
+function cellSpan(cells) {
+  const b = map.getBounds();
+  const dy = b.getNorth() - b.getSouth();
+  const dx = b.getEast() - b.getWest();
+  const aspect = Math.max(0.2, (dx * Math.cos((map.getCenter().lat * Math.PI) / 180)) / dy);
+  const rows = Math.max(1, Math.sqrt(cells / aspect));
+  return [dy / rows, dx / Math.max(1, cells / rows)];
+}
+
+/* 격자 칸을 흩어진 순서로 — 가까운 것부터 예산껏 그리면 가운데만 뭉치고 가장자리가 빈다.
+   칸 번호를 섞어 정렬하면 예산이 어디서 끊기든 화면 전체에 고르게 남는다. */
+function scatterKey(gy, gx) {
+  const h = Math.imul(gy + 1, 0x9e3779b1) ^ Math.imul(gx + 1, 0x85ebca6b);
+  return (h >>> 0) % 100000;
+}
+
 function drawTrees() {
   treeLayer.clearLayers();
   spotLayer.clearLayers();
@@ -253,12 +316,35 @@ function drawTrees() {
     //    아니라 '이 구간에 이만큼 있다'는 표시다 — 툴팁에 그루수와 출처를 적는다.
     const spots = r._spots || [];
     const bounds = map.getBounds().pad(0.15);
-    const near = spots.filter((s) => bounds.contains(s.ll));
-    const perSpot = Math.max(20, Math.floor(140 / n));
-    near.slice(0, perSpot).forEach((s, si) => {
+    const ctr = map.getCenter();
+    const near = spots
+      .filter((s) => bounds.contains(s.ll))
+      .sort((a, b) => ((a.ll[0] - ctr.lat) ** 2 + (a.ll[1] - ctr.lng) ** 2)
+                    - ((b.ll[0] - ctr.lat) ** 2 + (b.ll[1] - ctr.lng) ** 2));
+    // 그림 수로 예산을 잡는다 — 노선 수로 자르면 긴 노선 몇 개가 예산을 다 먹는다.
+    let budget = Math.max(260, Math.floor(900 / n));
+    // 다 들어가면 솎지 않는다. 축소해서 화면에 수천 개가 걸릴 때만 격자로 고르게 고른다 —
+    // 확대했을 때까지 솎으면 노선 두 개뿐인 여의도가 나무 네 그루가 된다.
+    const thin = near.length > budget;
+    const cell = cellSpan(budget * 2.2);
+    const taken = new Set();
+    if (thin) {
+      near.forEach((s) => {
+        s._cell = [Math.round(s.ll[0] / cell[0]), Math.round(s.ll[1] / cell[1])];
+      });
+      near.sort((a, b) => scatterKey(...a._cell) - scatterKey(...b._cell));
+    }
+    near.forEach((s, si) => {
+      if (budget <= 0) return;
+      if (thin) {
+        const key = `${s._cell[0]},${s._cell[1]}`;
+        if (taken.has(key)) return;
+        taken.add(key);
+      }
       const line = pickSegment(s);
-      const want = s.c ? Math.min(14, Math.max(1, Math.round(Math.sqrt(s.c) / 6))) : 1;
-      const spread = line ? spreadAlong(line, want) : [s.ll];
+      const seen = line ? clipLine(line, bounds) : null;
+      const spread = (seen ? spreadAlong(seen, treeCount(s, seen)) : [s.ll]).slice(0, budget);
+      budget -= spread.length;
       const big = s.c && s.c > 800;
       spread.forEach((ll, i) => {
         L.marker(ll, { icon: treeIcon(r.id, (si * 3 + i * 5) % 10, big && i === 0 ? 46 : 34) })

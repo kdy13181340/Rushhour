@@ -62,6 +62,9 @@ $PY scripts/03_eval_search_places.py --channel hash               # 품질 평�
 # 5) 경로 추천(출발→도착 3가지)용 도로망 (선택, 1회 약 5분 + 30초)
 uv pip install --python $PY osmnx
 $PY scripts/04_fetch_osm.py && $PY scripts/05_snap_trees.py        # → data/osm/
+
+# 6) 지도에 뿌릴 테마길 합본(공원·하천·전국). 05 뒤에 돌려야 길의 실제 형상까지 붙는다(DP25).
+$PY scripts/07_build_theme_spots.py                                # → data/processed/theme_spots.*
 ```
 
 **Windows(PowerShell)** 에서는 파드 venv 대신 저장소 루트에 `.venv`를 만든다(`.gitignore`에 있음).
