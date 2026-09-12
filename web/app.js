@@ -35,7 +35,7 @@ const SEASON_ORDER = ['spring', 'summer', 'autumn', 'winter', 'allseason'];
 const QUICK_CHIPS = [   // id: 클릭 즉시 흩뿌릴 테마(effects.js)
   { label: '🌸 벚꽃 봄산책',     q: '벚꽃길 추천해줘',      id: 'cherry' },
   { label: '🌳 여름 그늘길',     q: '여름 그늘 시원한 길',   id: 'shade' },
-  { label: '🍂 가을 은행 단풍',  q: '가을 은행 단풍길',      id: 'ginkgo-enjoy' },
+  { label: '🍂 가을 단풍길',     q: '가을 단풍길',           id: 'ginkgo-enjoy' },
   { label: '✿ 이팝 흰꽃길',      q: '이팝나무 흰꽃길',       id: 'ipaeb' },
   { label: '🌲 메타세쿼이아',    q: '메타세쿼이아 이국길',   id: 'metasequoia' },
   { label: '🎄 크리스마스 축제', q: '크리스마스 축제길',     id: 'christmas' },
@@ -47,7 +47,7 @@ const WELCOME =
   '안녕하세요! 🌿 **그루그루**입니다.\n\n' +
   '계절이나 원하는 분위기를 입력하시면 지도에 경로를 표시해드립니다.\n\n' +
   '- 봄 벚꽃길 추천해줘\n- 여름에 그늘 많고 시원한 길\n' +
-  '- 가을 은행나무 단풍길\n- 메타세쿼이아 이국적인 터널길';
+  '- 가을 단풍길\n- 메타세쿼이아 이국적인 터널길';
 
 const state = { routes: [], active: [], hoverId: null, busy: false,
   threadId: localStorage.getItem('rushhour-thread-id') || null };

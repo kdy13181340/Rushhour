@@ -50,7 +50,7 @@ THEMES: dict[str, dict] = {
         "note": "이팝나무 약 2.7만 그루, 5월 흰 꽃.",
     },
     "은행단풍": {
-        "label": "가을 은행 단풍길",
+        "label": "가을 단풍길",
         "mode": "prefer",
         "species": ["은행나무", "은행나무 암나무"],
         "season": "가을",

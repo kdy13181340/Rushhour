@@ -125,9 +125,8 @@ ROUTE_PRESENTATION = {
     "theme": {"id": "route-theme", "emoji": "🌳", "color": "#2d6a4f"},
     "avoid": {"id": "route-avoid", "emoji": "🚫", "color": "#e2574c"},
 }
-# 경로 카드에서만 쓰는 짧은 테마 이름. '가을 은행 단풍길 지나는 길'은 길어서 '가을 단풍길 지나는 길'로.
-# 좌측 목록·범례의 테마 이름(THEMES label)은 그대로다.
-ROUTE_THEME_SHORT = {"은행단풍": "가을 단풍길"}
+# 경로 카드에서만 쓰는 짧은 테마 이름(필요할 때만). 지금은 THEMES label이 이미 짧아 비어 있다.
+ROUTE_THEME_SHORT: dict[str, str] = {}
 # 카드·지도 나무 그림 — 테마 나무 그림(trees.js) 키. 단풍길은 단풍나무, 열매 회피는 은행나무.
 ROUTE_THEME_EMOJI = {"은행단풍": "🍁", "은행회피": "🟡"}
 
