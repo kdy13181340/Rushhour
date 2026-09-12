@@ -591,8 +591,7 @@ AGENT_SYSTEM = (
     "도구로 데이터를 조회해 근거를 모으는 것이 임무다 — 최종 답변 문장은 다음 단계가 만든다. "
     "필요한 도구를 호출하고, 충분한 데이터를 얻으면 도구 호출을 멈춰라.\n"
     "도구 사용 지침:\n"
-    "- 특정 자치구의 테마 도로: find_theme_streets(theme, district). theme는 "
-    "은행회피·벚꽃·그늘·이팝·은행단풍·메타세쿼이아 중 하나.\n"
+    "- 특정 자치구의 테마 도로: find_theme_streets(theme, district). theme는 {themes} 중 하나.\n"
     "- 출발→도착 경로에 지나는 테마길: route_theme_streets(origin, dest, theme). origin/dest는 "
     "자치구명 또는 장소명/랜드마크('올림픽공원','롯데타워','강남역')를 원문 그대로 넣는다.\n"
     "- 장소명·동네·하천·역이라 자치구가 불분명하면: search_places(query)로 후보 (구,노선)을 찾고, "
@@ -607,6 +606,7 @@ AGENT_SYSTEM = (
 
 def _agent_system(state: RouteState) -> str:
     return AGENT_SYSTEM.format(
+        themes="·".join(THEMES),              # 테마 목록은 THEMES에서 동적으로(신규 테마 자동 반영, unknown 제외)
         season=SEASON_LABEL.get(state.get("season", ""), state.get("season", "") or "미상"),
         theme=state.get("theme", "") or "미상", district=state.get("district", "") or "미상",
         place=state.get("place", "") or "없음", origin=state.get("origin", "") or "없음",
