@@ -338,9 +338,15 @@ def route_node(state: RouteState) -> dict:
 
     researcher_node와 같은 폴백 ③ — 도구 예외는 verdict='no_data' + hits.tool_error 로 넘긴다(DP10 보강).
     """
-    args = {"theme": state["theme"], "origin": state.get("origin") or "", "dest": state.get("dest") or ""}
+    base = {"theme": state["theme"], "origin": state.get("origin") or "", "dest": state.get("dest") or ""}
+    res = {"ok": False, "reason": "경로 조회 실패"}
     try:
-        res = route_theme_streets.invoke(args)
+        # 짧거나 데이터가 성긴 회랑 대응: 기본 폭(500m)에서 나무가 없으면 넓혀 재시도.
+        # 좌표 해소 실패는 폭과 무관하므로 즉시 중단(불필요한 재호출 방지).
+        for width in (500, 900, 1500):
+            res = route_theme_streets.invoke({**base, "width_m": width})
+            if res.get("ok") or "해석 못함" in (res.get("reason") or ""):
+                break
     except Exception as exc:  # noqa: BLE001
         print(f"  [route 폴백] 도구 실패({type(exc).__name__}) → no_data")
         res = {"ok": False, "reason": f"도구 오류 {type(exc).__name__}: {str(exc)[:120]}",

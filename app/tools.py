@@ -210,17 +210,31 @@ def district_centroid(gu: str):
 KAKAO_LOCAL_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 
 
-@functools.lru_cache(maxsize=512)
+# 성공한 해소 결과만 캐시한다(query → (위도,경도)). 실패(None)는 캐시하지 않아
+# 키 미설정·403·일시 네트워크 오류가 복구되면 다음 호출에서 자동으로 다시 시도된다.
+_GEOCODE_CACHE: dict[str, tuple] = {}
+
+
+def _geocode_clear_cache() -> None:
+    """지오코딩 성공 캐시 비우기(테스트·재설정용)."""
+    _GEOCODE_CACHE.clear()
+
+
 def _geocode_kakao(query: str):
     """장소명·랜드마크(예: '올림픽공원','롯데타워','강남역') → (위도, 경도).
 
     카카오 로컬 키워드검색으로 해소한다. 서울 안 결과를 우선 채택(회랑이 데이터
     범위 안에 들게). 키(KAKAO_REST_API_KEY) 없음·네트워크 실패·결과 없음이면 None —
     예외를 던지지 않아 오프라인/테스트에서도 조용히 기존 폴백으로 빠진다.
+    성공 결과만 캐시하므로 설정/네트워크 복구 시 재기동 없이 다음 호출에서 반영된다.
     """
-    key = get_settings().kakao_rest_api_key.strip()
     query = (query or "").strip()
-    if not key or not query:
+    if not query:
+        return None
+    if query in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[query]
+    key = get_settings().kakao_rest_api_key.strip()
+    if not key:
         return None
     try:
         resp = httpx.get(
@@ -242,9 +256,11 @@ def _geocode_kakao(query: str):
         return addr.startswith("서울")
     pick = next((d for d in docs if _is_seoul(d)), docs[0])
     try:
-        return (round(float(pick["y"]), 6), round(float(pick["x"]), 6))  # y=위도, x=경도
+        point = (round(float(pick["y"]), 6), round(float(pick["x"]), 6))  # y=위도, x=경도
     except (KeyError, TypeError, ValueError):
         return None
+    _GEOCODE_CACHE[query] = point                # 성공만 캐시
+    return point
 
 
 def _resolve_point(s: str):

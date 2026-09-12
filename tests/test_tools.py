@@ -77,7 +77,7 @@ def test_resolve_point_landmark_without_key_is_graceful(monkeypatch):
     있어도 이 테스트는 '키 없음' 상태를 확정할 수 있다.
     """
     monkeypatch.setenv("KAKAO_REST_API_KEY", "")
-    tools._geocode_kakao.cache_clear()
+    tools._geocode_clear_cache()
     assert _resolve_point("올림픽공원") is None
     r = route_theme_streets.invoke({"theme": "벚꽃", "origin": "올림픽공원", "dest": "롯데타워"})
     assert r["ok"] is False and "해석 못함" in r["reason"]
@@ -86,7 +86,7 @@ def test_resolve_point_landmark_without_key_is_graceful(monkeypatch):
 def test_resolve_point_landmark_geocoded(monkeypatch):
     """키 있으면 장소명 → 카카오 좌표(서울 결과 우선). httpx mock으로 네트워크 없이 검증."""
     monkeypatch.setenv("KAKAO_REST_API_KEY", "dummy")
-    tools._geocode_kakao.cache_clear()
+    tools._geocode_clear_cache()
 
     class _Resp:
         def raise_for_status(self): pass
@@ -98,4 +98,4 @@ def test_resolve_point_landmark_geocoded(monkeypatch):
 
     monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _Resp())
     assert _resolve_point("올림픽공원") == (37.52, 127.121)  # 부산 아닌 서울 채택
-    tools._geocode_kakao.cache_clear()
+    tools._geocode_clear_cache()
