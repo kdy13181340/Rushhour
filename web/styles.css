@@ -376,4 +376,13 @@ input{font:inherit}
   /* 터치 타깃·팝오버 폭 보정 */
   .trow{ padding:12px; }
   .rf-pop{ left:12px; right:12px; width:auto; }
+
+  /* 채팅 헤더가 42vh 시트를 많이 먹어 대화가 가리는 문제 — 좁은 화면에선 헤더를 납작하게.
+     부제목은 숨기고, 칩은 여러 줄로 쌓지 말고 가로로 한 줄 스크롤한다. */
+  .chat-head{ padding:8px 14px; }
+  .ch-sub{ display:none; }
+  .chips{ flex-wrap:nowrap; overflow-x:auto; margin-top:8px; -webkit-overflow-scrolling:touch;
+          scrollbar-width:none; }
+  .chips::-webkit-scrollbar{ display:none; }
+  .chips button{ flex:0 0 auto; }
 }
