@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>그루그루 · GRUGRU</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="styles.css?v=9">
+</head>
+<body>
+
+<div class="shell">
+  <!-- 테마 켤 때 화면 전체에 흩뿌리는 입자 오버레이(effects.js). 클릭을 막지 않는다. -->
+  <div class="fx" id="fx" aria-hidden="true"></div>
+
+  <!-- ── 상단 헤더 ────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">🌿</span>
+      <span class="name">그루그루</span>
+      <span class="en">GRUGRU</span>
+    </div>
+    <nav class="seasons" id="seasons" aria-label="현재 표시 중인 계절"></nav>
+    <div class="stats" id="stats"></div>
+    <!-- 모바일 전용: 테마 목록 드로어 토글(데스크톱에선 .m-toggle이 display:none) -->
+    <button type="button" class="m-toggle" id="side-toggle" aria-controls="themelist"
+            aria-expanded="false">☰ 목록</button>
+  </header>
+
+  <!-- 모바일 드로어 뒤 어둠막(바깥 탭하면 닫힘). 데스크톱·비열림 상태에선 display:none -->
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ── 본문 3분할 ───────────────────────────────────────── -->
+  <div class="body">
+
+    <aside class="side">
+      <div class="side-head"><span>테마 경로 목록</span></div>
+      <div class="themelist" id="themelist"></div>
+    </aside>
+
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div class="legend" id="legend" hidden></div>
+      <!-- 나무는 '켠 테마'에 맞춰 저절로 나온다. 토글도, 그루수 표시도 두지 않는다.
+           마커 하나가 노선 전체(예: 1,660그루)를 뜻할 때가 있어 '화면에 N그루'는 거짓말이 된다. -->
+      <!-- OSM 표기는 타일 라이선스상 남긴다. 데이터 출처는 나무 툴팁에 노선별로 적힌다. -->
+      <div class="credit">지도 &copy; OpenStreetMap 기여자</div>
+      <div class="boot" id="boot">가로수 데이터를 불러오는 중…</div>
+    </div>
+
+    <aside class="chat" id="chatpanel">
+      <div class="chat-head">
+        <div class="ch-title">🌿 그루그루</div>
+        <div class="ch-sub">어떤 산책길을 원하시나요?</div>
+        <div class="chips" id="chips"></div>
+      </div>
+
+      <div class="chat-scroll" id="chatlog"></div>
+
+      <div class="chat-foot">
+        <!-- 산책길 검색(출발지 → 목적지) 팝오버 -->
+        <div class="rf-pop" id="rf-pop" hidden>
+          <div class="rf-title"><span class="rf-ico">⌖</span> 산책 경로 요청</div>
+          <input id="rf-origin" type="text" autocomplete="off" placeholder="출발지 입력">
+          <input id="rf-dest" type="text" autocomplete="off" placeholder="목적지 입력">
+          <button type="button" id="rf-send" disabled>경로 요청 보내기</button>
+        </div>
+        <button type="button" class="rf-toggle" id="rf-toggle" aria-expanded="false"
+                aria-controls="rf-pop">🌸🌳🍂🌲 산책길 검색하기</button>
+        <form class="field" id="chatform">
+          <input id="q" type="text" autocomplete="off"
+                 placeholder="그루야, 봄 벚꽃길 추천해줘">
+          <button type="submit" id="send" disabled aria-label="보내기">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+        <p class="disclaimer">실제 경로와 차이가 있을 수 있습니다</p>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="trees.js?v=4"></script>
+<script src="effects.js?v=4"></script>
+<script src="app.js?v=9"></script>
+</body>
+</html>

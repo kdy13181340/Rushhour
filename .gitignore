@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# venv
+.venv/
+venv/
+env/
+
+# 로컬 설정/비밀
+.env
+.streamlit/
+
+# 로그·임시
+*.log
+.DS_Store
+
+# 산출물 (scripts/01 결과·체크포인트·궤적) — 재생성 가능
+data/processed/
+data/chroma/
+data/osm/
+cache/
+data/checkpoints.sqlite*
+results/
+.pytest_cache/
