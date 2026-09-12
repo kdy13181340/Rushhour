@@ -419,7 +419,9 @@ def _compact_hits(hits: dict, place_line: str = "") -> str:
             if r.get("theme"):
                 extra = (f" / {r['theme']} {r.get('theme_trees', 0)}그루"
                          f"(최단으로 가면 {r.get('base_trees', 0)}그루)")
-            lines.append(f"  - [{r['label']}] {r['distance_m']}m, 최단 대비 +{r['detour_pct']}%"
+            lines.append(f"  - [{r['label']}] {r['distance_m']}m 걸어서 약 {r.get('minutes', 0)}분, "
+                         f"가장 빠른 길 대비 +{r['detour_pct']}%, 큰길 아닌 길 "
+                         f"{round(r.get('walk_share', 0) * 100)}%"
                          f"{extra} / 지나는 길: {', '.join(r.get('streets', [])) or '이름 없는 길'}")
         return (f"{place_line}경로={hits.get('origin_name','')}→{hits.get('dest_name','')} "
                 f"계절={hits.get('season','')}\n비고={hits.get('note','')}\n대안 {len(lines)}가지:\n"
@@ -445,7 +447,8 @@ def template_answer(state: RouteState) -> str:
                 tail = (f", {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
                         f"(최단은 {r.get('base_trees', 0)}그루)")
             detour = f" (+{r['detour_pct']}%)" if r["detour_pct"] else ""
-            rows.append(f"{'①②③'[i]} {r['label']} {r['distance_m']:,}m{detour}{tail}"
+            rows.append(f"{'①②③'[i]} {r['label']} {r['distance_m']:,}m·약 {r.get('minutes', 0)}분"
+                        f"{detour}{tail}"
                         f" — {', '.join(r.get('streets', [])[:3]) or '이름 없는 길'}")
         return head + " " + " / ".join(rows) + f" {hits.get('note', '')}"
     spec = THEMES[hits["theme"]]

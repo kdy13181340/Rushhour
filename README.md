@@ -32,7 +32,7 @@ app/
 backend/
   main.py          FastAPI: /chat(SSE) /tools/* /health /threads   — BE
   trace.py         궤적: JSONL(기본) | Langfuse
-tests/             LLM·임베딩 모델·도로망 없이 도는 73건 (도구·라우터·API·멀티턴·벡터DB·경로)
+tests/             LLM·임베딩 모델·도로망 없이 도는 75건 (도구·라우터·API·멀티턴·벡터DB·경로)
 docs/BE_DESIGN.md  설계 v2 · docs/DECISIONS.md 결정 기록
 ```
 
@@ -95,8 +95,11 @@ AGENT_CHANNEL=none $PY app/graph.py
 - `TRACE_BACKEND=jsonl|langfuse|none`: 궤적은 기본 `results/rushhour_trace.jsonl`.
 - `/health`의 `chat_mode`가 `rule`이면 UI 사이드바에 규칙 모드 배지가 뜬다. 지도는 어느 모드에서도 나온다.
 - `/chat`은 같은 `thread_id`로 계속 물어도 된다 — 턴마다 그래프 상태를 비우고 처음부터 돈다(`docs/DECISIONS.md` DP13).
-- **경로 3가지**: `POST /tools/plan_route {origin, dest, season, theme}` — 최단 · 그 계절 테마 경유 · 회피.
-  `data/osm/`가 없으면 `/health`의 `osm.ready`가 false이고, 채팅은 기존 회랑 방식으로 답한다(결정·측정은 DP17).
+- **경로 3가지**: `POST /tools/plan_route {origin, dest, season, theme}` — 빠른 도보 경로 · 그 계절 테마 경유 · 회피.
+  **도보 기준**이다 — 거리에 도로 종류별 계수(보도 1.0 · 간선 2.3)를 곱한 체감 길이로 길을 고르고,
+  답변에는 실제 미터·소요 시간(4km/h)·큰길 아닌 길 비율을 준다(DP19).
+  지도에 그리는 선도 실제 보행 도로 형상이다(DP20).
+  `data/osm/`가 없으면 `/health`의 `osm.ready`가 false이고, 채팅은 기존 회랑 방식으로 답한다(DP17).
 - `EMBED_CHANNEL`: `local`(OpenAI 호환 `/v1/embeddings`, 기본)·`openai`·`gemini`·`st`(sentence-transformers, 별도 설치)·`hash`(모델 없음).
   인덱스는 채널별 `data/chroma/<채널>/`. `/health`의 `rag.ready`가 false면 그 채널로 `scripts/02`를 돌리고,
   `embed.reachable`이 false면 임베딩 서버가 죽은 것. `POST /tools/search_places {query, k, district, min_trees, size_weight}` — 결정·측정은 DP14.

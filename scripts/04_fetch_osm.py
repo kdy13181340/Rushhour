@@ -6,7 +6,10 @@
 
 산출물(data/osm/, gitignore — 재생성 가능):
   seoul_walk_nodes.parquet   node, 위도, 경도
-  seoul_walk_edges.parquet   u, v, length_m, 도로명, geom_lat[], geom_lon[]   (양방향 1행씩)
+  seoul_walk_edges.parquet   u, v, length_m, 도로명, highway, geom_lat[], geom_lon[]  (양방향 1행씩)
+
+`highway`(보도·이면도로·간선 등 OSM 도로 종류)는 **도보 가중치**에 쓴다 — 이게 없으면 라우팅이
+보도와 남부순환로를 길이로만 비교해 큰길로 붙는다(DECISIONS DP19).
 
 GraphML 대신 Parquet으로 저장한다 — 서버 기동 때 빠르게 읽고, 라우팅은 scipy 희소행렬로 한다
 (networkx 그래프를 통째로 들고 있을 이유가 없다).
@@ -54,8 +57,12 @@ def to_frames(G) -> tuple[pd.DataFrame, pd.DataFrame]:
         name = d.get("name")
         if isinstance(name, list):                 # OSM은 이름이 여러 개일 수 있다
             name = name[0]
+        hw = d.get("highway")
+        if isinstance(hw, list):
+            hw = hw[0]
         rows.append({"u": u, "v": v, "length_m": float(d.get("length", 0.0)),
-                     "도로명": str(name) if name else "", "geom_lat": gla, "geom_lon": glo})
+                     "도로명": str(name) if name else "", "highway": str(hw) if hw else "",
+                     "geom_lat": gla, "geom_lon": glo})
     return nodes, pd.DataFrame(rows)
 
 
@@ -83,6 +90,7 @@ def main() -> None:
     print(f"저장: {OUT_DIR}  노드 {len(nodes):,} / 간선 {len(edges):,} "
           f"(도로명 있는 간선 {named:,} = {named/len(edges)*100:.0f}%)")
     print(f"간선 길이 m: 중앙값 {edges['length_m'].median():.0f} · 총 {edges['length_m'].sum()/1000:,.0f}km")
+    print("도로 종류(간선 수):", dict(edges["highway"].value_counts().head(10)))
     print(f"총 {time.time()-t0:.0f}s")
 
 

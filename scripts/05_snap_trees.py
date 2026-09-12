@@ -98,12 +98,14 @@ def main() -> None:
     for key, spec in THEMES.items():
         m = hit & np.isin(species, spec["species"])
         out[key] = np.bincount(edge_of_tree[m], minlength=len(uniq))
-    # 그 간선에 가장 많은 노선 이름(가로수 데이터 기준) — 답변에서 '무슨 길'인지 말하기 위해
-    line = trees["노선"].to_numpy()
-    named = pd.DataFrame({"e": edge_of_tree[hit], "노선": line[hit]}).dropna()
-    top = (named.groupby(["e", "노선"]).size().reset_index(name="n")
-           .sort_values("n", ascending=False).drop_duplicates("e").set_index("e")["노선"])
-    out["가로수노선"] = pd.Series(out.index.map(top)).fillna("").to_numpy()
+    # 그 간선에 가장 많은 (구, 노선) — 답변에서 '무슨 길'인지 말하고, 화면에 그 도로의 실제
+    # 형상을 그릴 때 (구, 노선)으로 간선을 고르기 위해서다(DP20).
+    named = pd.DataFrame({"e": edge_of_tree[hit], "구": trees["구"].to_numpy()[hit],
+                          "노선": trees["노선"].to_numpy()[hit]}).dropna()
+    top = (named.groupby(["e", "구", "노선"]).size().reset_index(name="n")
+           .sort_values("n", ascending=False).drop_duplicates("e").set_index("e"))
+    out["가로수구"] = pd.Series(out.index.map(top["구"])).fillna("").to_numpy()
+    out["가로수노선"] = pd.Series(out.index.map(top["노선"])).fillna("").to_numpy()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(OUT, index=False)

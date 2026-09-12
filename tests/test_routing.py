@@ -101,3 +101,54 @@ def test_resolve_point_accepts_coords_and_district():
 def test_resolve_point_uses_vector_search_for_places(rag_index):
     pt, name = R.resolve_point("석촌호수")
     assert pt is not None and "송파구" in name
+
+
+# ── 도보 계수: 같은 거리면 큰길보다 보도로 (DP19) ──────────────────────────
+@pytest.fixture(scope="module")
+def walk_net(tmp_path_factory):
+    """길이가 **똑같은** 두 갈래 — 위는 간선도로(primary), 아래는 보도(footway). 나무는 없다.
+
+    거리만 보면 둘이 같으므로, 아래를 고르면 도보 계수가 실제로 작동하는 것이다.
+    """
+    import pandas as pd
+
+    from themes import THEMES
+
+    node = {0: (37.50, 127.00), 1: (37.505, 127.005), 2: (37.50, 127.01), 3: (37.495, 127.005)}
+    pd.DataFrame([{"node": k, "위도": v[0], "경도": v[1]} for k, v in node.items()]).to_parquet(
+        (d := tmp_path_factory.mktemp("walknet")) / "seoul_walk_nodes.parquet", index=False)
+    rows = []
+    for u, v, hw, nm in [(0, 1, "primary", "큰길"), (1, 2, "primary", "큰길"),
+                         (0, 3, "footway", "보도"), (3, 2, "footway", "보도")]:
+        for a, b in ((u, v), (v, u)):
+            rows.append({"u": a, "v": b, "length_m": 500.0, "도로명": nm, "highway": hw,
+                         "geom_lat": [node[a][0], node[b][0]], "geom_lon": [node[a][1], node[b][1]]})
+    pd.DataFrame(rows).to_parquet(d / "seoul_walk_edges.parquet", index=False)
+    trees = []
+    for a, b in ((0, 1), (1, 2), (0, 3), (3, 2)):
+        row = {"a": min(a, b), "b": max(a, b), "나무수": 0, "가로수노선": ""}
+        row.update({k: 0 for k in THEMES})
+        trees.append(row)
+    pd.DataFrame(trees).to_parquet(d / "seoul_walk_edge_trees.parquet", index=False)
+
+    R._graph.cache_clear()
+    old, R.OSM_DIR = R.OSM_DIR, d
+    yield d
+    R.OSM_DIR = old
+    R._graph.cache_clear()
+
+
+def test_prefers_footway_over_arterial_at_equal_distance(walk_net):
+    res = R.plan_routes(node_a := (37.50, 127.00), (37.50, 127.01), plans=[("shortest", "")])
+    r = res["routes"][0]
+    assert r["streets"] == ["보도"], r["streets"]      # 거리가 같으면 보도로 걷는다
+    assert r["distance_m"] == 1000 and r["walk_share"] == 1.0
+    assert node_a[0] == 37.50
+
+
+def test_walk_share_reports_big_road_fraction(walk_net):
+    """큰길로만 가도록 강제하면 보행자 길 비율이 0으로 보고된다 — 숫자가 실제를 반영."""
+    g = R._graph()
+    big = R.plan_routes((37.505, 127.005), (37.50, 127.00), plans=[("shortest", "")])
+    assert big["routes"][0]["streets"] == ["큰길"] and big["routes"][0]["walk_share"] == 0.0
+    assert g["has_highway"] is True

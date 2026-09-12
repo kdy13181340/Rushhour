@@ -43,7 +43,7 @@ from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_mode
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
 from backend.trace import make_tracer                  # noqa: E402
-from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload  # noqa: E402
+from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload_cached  # noqa: E402
 
 CHECKPOINT_PATH = Path(os.environ.get("CHECKPOINT_DB", ROOT / "data" / "checkpoints.sqlite"))
 STATE = {}
@@ -194,7 +194,7 @@ def ui_theme(theme_id: str, district: str = ""):
     theme = BY_ID.get(theme_id)
     if theme is None:
         raise HTTPException(404, "모르는 UI 테마")
-    payload = theme_payload(theme, district, include_points=True)
+    payload = theme_payload_cached(theme, district, True)
     if payload is None:
         raise HTTPException(404, "해당 조건의 가로수 데이터 없음")
     return payload
