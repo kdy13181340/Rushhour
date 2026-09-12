@@ -4,15 +4,21 @@
 
 ## 진행 상황 (2026-09-11)
 
-C1·C2·C3·C4·C5·C6 구현 완료(서버 없이 검증, tests 47건 통과). C7 중 `search_places`(벡터DB, RAG)는
-구현·평가 완료(DP14), `plan_route`·`find_light_spots`는 light 스텁만 배선됨.
+C1~C6 구현 완료(서버 없이 검증, tests 59건 통과). C7 중 `search_places`(벡터DB, RAG)는 구현·평가·
+**그래프 배선까지 완료**(DP14·DP15), `plan_route`·`find_light_spots`는 light 스텁만 배선됨.
 **제보 등록(register_report)·HITL은 팀 결정으로 범위에서 제외**(DP8).
 같은 thread의 다음 질문이 이전 답을 되돌려주던 결함 수정(DP13), 폴백 ③ 도구 예외 구현(DP10 보강).
-결정은 `DECISIONS.md` DP4~DP14.
+임베딩은 팀 bge-m3 서버(llama-server)로 색인·평가 완료, 8080 LLM(27B) 종단 확인(DP14·DP15).
+결정은 `DECISIONS.md` DP4~DP15.
 
-**BE 남은 것**: `search_places` 그래프 배선(B와 함께) · 8082 임베딩 서버 모델로 eval 재실행(local 채널) ·
-C7 `find_light_spots`(같은 Chroma 클라이언트에 컬렉션 추가 — 겨울 조명 문서 소스 미정) · LLM 경로 종단
-시험(8080 필요, 폴백 ①② 실발동 확인) · Langfuse 콜백 검증(서버 필요) · vLLM 7B A/B(DP7).
+**BE 남은 것**:
+- `/ui/overview` 캐시 — 첫 화면인데 요청마다 1.3초(테마 6종을 매번 재계산, 결과는 고정)
+- `size_weight` 모델 독립 정규화 — 후보 안에서 유사도를 정규화한 뒤 더하기(DP14 후속)
+- 평가 질의 확충 — 현재 18건. 채널 비교를 판단하기엔 얇다
+- C7 `find_light_spots` — 같은 Chroma 클라이언트에 컬렉션 추가. **겨울 조명 문서 소스 미정(팀 결정 대기)**
+- LLM 폴백 ①(구조화 출력 실패) 실발동 확인 — 정상 경로는 8080으로 확인됨
+- Langfuse 콜백 검증(서버 필요) · vLLM 7B A/B(DP7)
+- 장소 해소를 동/도로 단위로 좁히기 — 지금은 자치구 단위(DP15 남은 한계)
 
 ## 0. 초안 평가 — 살릴 것과 바꿀 것
 
@@ -182,7 +188,8 @@ Rushhour/
 | DP12 | develop 병합 | 추천 미션·superlative·핫스팟 focus 이식 |
 | DP13 | 같은 thread 다음 질문 | `new_turn_input`으로 턴 상태 리셋, visited 리듀서 `_add_or_reset` |
 | DP14 | 벡터DB·임베딩·search_places | Chroma (구,노선) 문서, 채널 5종 + 서명 검사, hash IDF, size_weight 0.02, eval 18건 |
-| DP15 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
+| DP15 | 장소 해소(places 노드) | 자치구가 아닌 장소는 벡터DB로 자치구를 정한 뒤 기존 경로. 해석을 답변에 밝힘 |
+| DP16 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
 
 ## 8. 작업 순서와 분담 제안 (초안의 A/B/C 유지)
 

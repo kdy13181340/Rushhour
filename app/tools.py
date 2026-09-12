@@ -62,6 +62,47 @@ def match_district(text: str) -> str:
     return ""
 
 
+def _strip_suffix(name: str) -> str:
+    """도로·행정동 접미사를 하나만 뗀 어간. 긴 접미사 우선. 해당 없으면 ''."""
+    for sfx in ("고속도로", "대로", "로", "길", "동", "가"):
+        if name.endswith(sfx):
+            return name[:-len(sfx)]
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def place_names() -> tuple[str, ...]:
+    """데이터에 실제로 있는 '자치구가 아닌' 장소 이름 — 동 이름 + 노선 이름.  [DECISIONS DP15]
+
+    규칙 intake(LLM 없이)가 '대치동'·'양재천로' 같은 장소 표현을 알아보는 데 쓴다. 긴 이름부터
+    돌려주어 '양재천로'가 '양재천'보다 먼저 잡히게 한다. 지어낸 지명 목록이 아니라 데이터에서 뽑는다.
+    """
+    df = _load()
+    dong = df["지번"].str.extract(r"서울특별시\s+\S+구\s+(\S+)")[0].dropna().unique()
+    lines = df["노선"].dropna().unique()
+    gus = set(available_districts())
+    names = {str(x).strip() for x in list(dong) + list(lines)}
+    # 사람은 '양재천로'를 '양재천', '여의도동'을 '여의도'라 부른다 — 접미사를 뗀 형태도 같이 넣는다.
+    # 긴 접미사 먼저 하나만 뗀다('강남대로'에서 '로'를 떼면 '강남대' 같은 조각이 생김).
+    # 3글자 이상만 남긴다(‘종로’→‘종’, ‘역삼동’→‘역삼’ 같은 조각의 오탐을 피함).
+    names |= {st for n in names if (st := _strip_suffix(n)) and len(st) >= 3 and not st[-1].isdigit()}
+    names = {n for n in names if len(n) >= 2 and n not in gus and not n.endswith("구")}
+    return tuple(sorted(names, key=len, reverse=True))
+
+
+def match_place(text: str) -> str:
+    """자유 텍스트에서 자치구가 아닌 장소 이름을 찾는다(가장 긴 것 하나). 없으면 ''.
+
+    '양재천 근처 벚꽃길' → '양재천로'가 아니라 '양재천'? — 데이터의 노선명 '양재천로'가 더 길어
+    먼저 잡힌다. 텍스트에 '양재천'만 있으면 부분 문자열이라 '양재천로'는 안 잡히고 동 이름 등에서 찾는다.
+    자치구가 이미 잡힌 질문에는 부르지 않는다(graph.rule_intake).
+    """
+    for name in place_names():
+        if name in text:
+            return name
+    return ""
+
+
 def _hotspot_focus(seg, cell: float = 0.004) -> dict:
     """도로 나무 좌표에서 가장 밀집한 ~1km 격자를 찾아 지도 focus(center·bbox) 반환.
 

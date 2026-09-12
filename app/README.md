@@ -8,10 +8,12 @@
 ## 구조
 
 ```
-질문 ─► supervisor ─(규칙 라우터: 울타리 → 빈 칸 순서)─► season → intake → researcher → [light] → resolver ─► END
-            ▲                                            (코드)  (LLM│규칙)  (도구)     (겨울)   (LLM│템플릿)
-            └──────────── 담당자가 끝나면 되돌아옴 ───────────┘
-테마 판별불가 / 커버리지 밖 / 서울 밖 → 도구를 부르지 않고 resolver로 (친절 안내·대안 제안)
+질문 ─► supervisor ─(규칙 라우터: 울타리 → 빈 칸 순서)─► season → intake → [places] → researcher│route → [light] → resolver ─► END
+            ▲                                            (코드)  (LLM│규칙)  (벡터DB)   (도구)        (겨울)   (LLM│템플릿)
+            └──────────── 담당자가 끝나면 되돌아옴 ─────────────────┘
+places: 자치구가 아닌 장소('양재천'·'대치동')를 벡터DB로 자치구로 해소 (DP15)
+route  : 출발·도착이 둘 다 있으면 회랑 경유 추천 (route_theme_streets)
+커버리지 밖 / 서울 밖 / (해소 후에도) 테마 판별불가 → 도구를 부르지 않고 resolver로 (친절 안내·대안 제안)
 ```
 자세한 그림과 결정은 `../docs/BE_DESIGN.md` §1.
 
@@ -83,9 +85,11 @@ search_places.invoke({"query": "양재천 근처 메타세쿼이아", "k": 5,
 ② 테마 키로 안 잡히는 **자유 질의**. 좌표는 안 돌려주므로 후보의 (구, 노선)으로
 `find_theme_streets`·`map_api.street_points`를 이어 부른다. `themes` 필드로 테마를 되짚을 수도 있다.
 
-**B가 배선할 곳(제안)**: intake가 district를 못 뽑았거나 theme이 unknown인데 질문에 지명·동네가
-보이면, researcher가 `search_places`로 후보를 얻어 `find_theme_streets(theme, 후보 구)`로 이어감
-(라우터 고정 호출, DP4). 도구 개수는 +1.
+**배선 완료(DP15)**: `places` 노드가 라우터 고정 호출로 부른다. intake가 자치구 대신 장소 표현
+(`place`: '양재천'·'대치동')을 뽑으면, places가 `search_places`로 1등 후보의 구를 `district`에 채우고
+그 뒤는 기존 researcher/`find_theme_streets` 경로가 그대로 돈다 — `hits` 계약은 안 바뀐다.
+테마까지 못 뽑은 질문('대치동 산책길')은 후보 도로의 테마 중 지금 계절·추천 것을 골라 거절 대신 답한다.
+인덱스나 임베딩 서버가 없으면 장소만 못 살리고 서울 전체로 답한다(그래프는 안 죽는다).
 
 인덱스: `python scripts/02_build_vector_db.py [--channel hash|st|local]` → `data/chroma/<채널>/`.
 품질: `python scripts/03_eval_search_places.py` — 18건에서 e5-small MRR 0.87, 모델 없는 hash 0.72.

@@ -42,8 +42,13 @@ from typing_extensions import TypedDict
 from llm import get_chat_model
 from themes import (SEASON_KEYS, SEASON_LABEL, SEASON_WORDS, THEME_KEYS, THEMES,
                     season_of, theme_menu, themes_for_season)
-from tools import (available_districts, find_theme_streets, match_district,
+from tools import (available_districts, find_theme_streets, match_district, match_place,
                    route_theme_streets)
+
+try:                       # 벡터DB 검색(DP14). chromadb·인덱스가 없어도 그래프는 돌아야 한다
+    from rag import search_places
+except Exception:          # noqa: BLE001
+    search_places = None
 
 # 무한 루프 방지 — supervisor를 몇 번까지 지날 수 있는지 (week6 MAX_HOPS=8과 같은 장치).
 # 정상 경로 최대: season·intake·researcher·light·resolver → supervisor 5회 + 여유.
@@ -72,6 +77,8 @@ class RouteState(TypedDict, total=False):
     season: str                               # season: spring|summer|autumn|winter (코드)
     theme: str                                # intake: 테마 키 또는 'unknown'
     district: str                             # intake: 자치구 또는 ''
+    place: str                                # intake: 자치구가 아닌 장소 표현('양재천','대치동') 또는 ''
+    place_hits: list                          # places: 벡터DB 후보(해소 결과·궤적용). 못 찾으면 []
     origin: str                               # intake: 경로 출발지 또는 '' (route 분기)
     dest: str                                 # intake: 경로 목적지 또는 ''
     superlative: bool                         # intake: '가장 큰 길 하나' 의도 → 도구 top_only
@@ -93,6 +100,7 @@ def new_turn_input(question: str) -> dict:
     RouteState에 턴 단위 필드를 추가하면 여기에도 넣는다(tests/test_router.py가 검사).
     """
     return {"question": question, "season": None, "theme": None, "district": "",
+            "place": "", "place_hits": None,            # 장소 해소(DP15): 이전 턴의 장소가 남으면 안 됨
             "origin": "", "dest": "",                   # route 분기(35d4b7f): 이전 턴의 출발·도착이 남으면 안 됨
             "superlative": False, "outside_seoul": False, "intake_mode": None,
             "hits": None, "light_spots": None, "verdict": None,
@@ -113,6 +121,9 @@ class Intent(BaseModel):
     theme: Literal[tuple(THEME_KEYS)] = Field(  # type: ignore[valid-type]
         description="가장 맞는 테마 키. 어느 것도 아니면 'unknown'")
     district: str = Field(default="", description="언급된 서울 자치구(예: '강남구'). 없으면 빈 문자열")
+    place: str = Field(default="",
+        description="자치구가 아닌 장소 표현(동 이름·하천·호수·역·공원·도로명). 예: '양재천', '대치동', "
+                    "'석촌호수'. 자치구를 적었으면 비우고, 장소 언급이 없어도 빈 문자열")
     origin: str = Field(default="",
         description="'A에서 B 가는 길'처럼 출발·도착이 둘 다 있을 때의 출발 자치구. 아니면 빈 문자열")
     dest: str = Field(default="", description="위 경로 질문의 도착 자치구. 아니면 빈 문자열")
@@ -134,7 +145,8 @@ INTAKE_PROMPT = (
     "'더운데 그늘'→그늘, '5월 흰꽃'→이팝, '노란 단풍'→은행단풍, '메타세콰이어'→메타세쿼이아.\n"
     "2. 테마 단서가 없고 '지금/요즘 볼만한 길'처럼만 물으면 [지금 시기] 테마 중 첫 번째를 고른다.\n"
     "3. 어느 테마에도 안 맞으면 theme='unknown'.\n"
-    "4. district는 '서울의 자치구 25개'만. 안 적혔으면 빈 문자열, 지어내지 않는다.\n"
+    "4. district는 '서울의 자치구 25개'만. 안 적혔으면 빈 문자열, 지어내지 않는다. 자치구가 아닌 "
+    "장소(동 이름·하천·호수·역·공원·도로명)는 지어내지 말고 질문에 쓰인 그대로 place에 적는다.\n"
     "5. 사용자가 계절이나 월을 명시했으면 season에 적는다. 아니면 빈 문자열.\n"
     "6. '가장/제일/최고/최대/best' 등 하나를 콕 집으면 superlative=true.\n"
     "7. 부산·해운대·경기·인천 등 서울 밖 지역이면 outside_seoul=true.\n"
@@ -145,6 +157,8 @@ INTAKE_PROMPT = (
     "Q: 강남구에서 봄에 벚꽃 예쁜 길 → theme=벚꽃, district=강남구 (origin/dest 없음)\n"
     "Q: 강남구에서 송파구 가는 길 벚꽃 → theme=벚꽃, origin=강남구, dest=송파구, district=''\n"
     "Q: 서울에서 가장 큰 벚꽃길 → theme=벚꽃, district='', superlative=true, outside_seoul=false\n"
+    "Q: 양재천 근처 메타세쿼이아 길 → theme=메타세쿼이아, district='', place=양재천\n"
+    "Q: 대치동 산책길 → theme=unknown, district='', place=대치동\n"
     "Q: 가을에 냄새 안 나게 강동구 산책 → theme=은행회피, district=강동구, season=autumn\n"
     "Q: 부산 해운대 벚꽃길 → theme=벚꽃, district='', outside_seoul=true\n"
     "Q: 오늘 날씨 어때? → theme=unknown\n\n"
@@ -201,7 +215,10 @@ def rule_intake(question: str, season: str) -> dict:
         gus = _districts_in_order(question)
         if len(gus) >= 2:
             origin, dest = gus[0], gus[1]
-    return {"theme": cands[0] if cands else "unknown", "district": match_district(question),
+    # 자치구를 못 잡았을 때만 장소 이름(동·노선)을 찾는다 — 데이터에 있는 이름만(DP15)
+    district = match_district(question)
+    place = "" if (district or outside or origin) else match_place(question)
+    return {"theme": cands[0] if cands else "unknown", "district": district, "place": place,
             "origin": origin, "dest": dest,
             "season": season_override, "superlative": superlative, "outside_seoul": outside}
 
@@ -227,6 +244,7 @@ def intake_node(state: RouteState) -> dict:
             out = llm.invoke(INTAKE_PROMPT.format(
                 season_label=SEASON_LABEL[season], menu=theme_menu(season), q=q))
             parsed = {"theme": out.theme, "district": (out.district or "").strip(),
+                      "place": (out.place or "").strip(),
                       "origin": (out.origin or "").strip(), "dest": (out.dest or "").strip(),
                       "season": out.season or "", "superlative": bool(out.superlative),
                       "outside_seoul": bool(out.outside_seoul)}
@@ -236,6 +254,7 @@ def intake_node(state: RouteState) -> dict:
     if parsed is None:
         parsed = rule_intake(q, season)
     update = {"theme": parsed["theme"], "district": parsed["district"],
+              "place": parsed.get("place", ""),
               "origin": parsed.get("origin", ""), "dest": parsed.get("dest", ""),
               "superlative": parsed.get("superlative", False),
               "outside_seoul": parsed.get("outside_seoul", False),
@@ -245,6 +264,49 @@ def intake_node(state: RouteState) -> dict:
     verdict = _verdict_for(parsed["theme"], parsed["district"], update["outside_seoul"])
     if verdict:
         update["verdict"] = verdict
+    return update
+
+
+# ── places (벡터DB로 장소 → 자치구 해소. 도구 호출은 라우터 고정, DP4) ───────
+def places_node(state: RouteState) -> dict:
+    """'양재천'·'대치동' 같은 장소 표현을 벡터DB로 (구, 노선) 후보로 바꾼다.  [DP15]
+
+    하는 일은 '자치구 해소' 하나다 — 찾은 1등 도로의 구를 district에 채워 넣으면, 그 뒤는 기존
+    researcher/find_theme_streets 경로가 그대로 돈다(hits 계약을 건드리지 않음).
+    테마까지 못 뽑은 질문이면 그 도로가 가진 테마 중 지금 계절 것을 골라 거절 대신 답하게 한다.
+
+    인덱스가 없거나 임베딩 서버가 죽어도 그래프는 죽지 않는다 — 장소만 못 살리고 서울 전체로 간다.
+    """
+    place = (state.get("place") or "").strip()
+    if search_places is None:
+        return {"place_hits": [], "visited": ["places"]}
+    try:
+        res = search_places.invoke({"query": place or state.get("question", ""), "k": 5})
+    except Exception as exc:  # noqa: BLE001 — 임베딩 서버 다운·인덱스 손상
+        print(f"  [places 폴백] 검색 실패({type(exc).__name__}) → 장소 없이 진행")
+        res = {"ok": False, "reason": f"{type(exc).__name__}: {str(exc)[:100]}"}
+    if not res.get("ok") or not res.get("results"):
+        print(f"  [places] 장소 해소 실패({res.get('reason', '결과 없음')}) → 서울 전체로 진행")
+        return {"place_hits": [], "visited": ["places"]}
+
+    hits = res["results"][:3]
+    # 자치구는 1등 후보로 정한다. 그 뒤는 기존 researcher 경로가 그 구에서 테마 도로를 고른다.
+    update = {"district": hits[0]["구"], "place_hits": hits, "visited": ["places"]}
+    # 테마를 못 뽑은 질문("대치동 산책길")은 후보 도로들이 가진 테마 중 지금 계절 것으로 — DP5와 같은 정책.
+    # 1등이 작은 골목이면 테마 태그(THEME_MIN 이상)가 비어 있어 상위 후보 전체를 본다.
+    if state.get("theme") == "unknown":
+        cands = {t for h in hits for t in h.get("themes", []) if t in THEMES}
+        if cands:
+            # 순서가 곧 정책이다(DP5): 지금 계절 → 추천(prefer) → 정의 순서.
+            # 계절 테마가 하나도 없을 때 그냥 첫 번째를 집으면 '산책길' 질문에 은행회피(avoid)를
+            # 답하는 사고가 난다 — mode를 2순위 키로 둬서 막는다.
+            order = themes_for_season(state.get("season", ""))
+            keys = list(THEMES)
+            update["theme"] = min(cands, key=lambda t: (
+                order.index(t) if t in order else len(order),
+                THEMES[t]["mode"] != "prefer",
+                keys.index(t)))
+            update["verdict"] = None            # intake가 매긴 unknown_intent 해제
     return update
 
 
@@ -297,20 +359,33 @@ RESOLVER_PROMPT = (
     "한국어로 간결히 답하라. 도구결과에 없는 도로명·수치를 지어내지 마라.\n"
     "- mode가 'prefer'면 추천 길로, 'avoid'면 '피하는 게 좋은 길'로 설명한다.\n"
     "- 도구결과가 '경로=A→B'면, 'A에서 B 가는 길에 ~ 가로수길을 지나요'로 서술한다.\n"
+    "- '장소해소'가 있으면 그 장소를 어느 자치구·도로로 알아들었는지 한 문장으로 먼저 밝힌다.\n"
     "- 테마가 '은행회피'면, 데이터에 암나무가 일부만 라벨링되어 있어 '근사'임을 한 문장 밝혀라.\n"
     "- 답 끝에 계절 정보를 덧붙여라. 요청 테마가 지금 계절({season_label})과 다르면 그 점도 한 문장.\n\n"
     "[사용자 질문]\n{q}\n\n<도구결과>\n{hits}\n</도구결과>\n"
 )
 
 
-def _compact_hits(hits: dict) -> str:
+def _place_line(state: RouteState) -> str:
+    """장소 해소 결과 한 줄 — 우리가 그 장소를 어느 자치구로 알아들었는지 답변에 드러내기 위함.
+
+    답변에 실제로 쓰이는 결정은 '자치구'다(그 구에서 테마 도로를 다시 고른다). 검색 1등 도로는
+    작은 골목일 수 있어 문장에 넣지 않는다 — 사용자가 고칠 수 있는 정보만 밝힌다.
+    """
+    place, cands = state.get("place"), state.get("place_hits") or []
+    if not place or not cands:
+        return ""
+    return f"장소해소='{place}' → {cands[0]['구']}로 해석(사용자가 다른 곳을 뜻했을 수 있음)\n"
+
+
+def _compact_hits(hits: dict, place_line: str = "") -> str:
     """LLM에는 도로명·그루수만 간결히 전달(좌표 center/focus/bbox는 UI 전용이라 제외)."""
     lines = "\n".join(f"  - {s['구']} {s['노선']}: {s['그루수']}그루" for s in hits.get("streets", []))
     if hits.get("kind") == "route":
-        return (f"경로={hits['origin']}→{hits['dest']} 테마={hits['theme']} 방식={hits['mode']} "
+        return (f"{place_line}경로={hits['origin']}→{hits['dest']} 테마={hits['theme']} 방식={hits['mode']} "
                 f"계절={hits['season']} 회랑±{hits.get('width_m', 500)}m 총={hits['total_trees']}그루\n"
                 f"비고={hits['note']}\n경유 도로:\n{lines}")
-    return (f"테마={hits['theme']} 방식={hits['mode']} 계절={hits['season']} "
+    return (f"{place_line}테마={hits['theme']} 방식={hits['mode']} 계절={hits['season']} "
             f"지역={hits['district']} 총={hits['total_trees']}그루\n비고={hits['note']}\n도로:\n{lines}")
 
 
@@ -327,6 +402,10 @@ def template_answer(state: RouteState) -> str:
         if len(hits["streets"]) == 1:
             verb = "가장 많은 길" if hits["mode"] == "prefer" else "가장 피해야 할 길"
         text = f"[{spec['label']}] {hits['district']} {verb}: {top}. {hits['note']}"
+    # 장소를 우리가 자치구로 바꿔 해석했으면 먼저 밝힌다 — 사용자가 다른 곳을 뜻했을 수 있다(DP15)
+    cands = state.get("place_hits") or []
+    if state.get("place") and cands:
+        text = f"‘{state['place']}’은(는) {cands[0]['구']}로 봤어요. " + text
     season = state.get("season", "")
     if season and season not in spec["seasons"]:
         text += f" 지금은 {SEASON_LABEL[season]}이라 이 테마의 시기({spec['season']})와는 다릅니다."
@@ -351,8 +430,12 @@ def resolver_node(state: RouteState) -> dict:
     if verdict == "unknown_intent" or theme == "unknown":
         now = themes_for_season(state.get("season", ""))
         menu = " · ".join(THEMES[k]["label"] for k in now + [k for k in THEMES if k not in now])
+        head = ""
+        if state.get("place") and not (state.get("place_hits") or []):
+            # 장소는 알아들었는데 벡터DB가 못 찾은 경우 — 못 찾았다고 밝힌다
+            head = f"‘{state['place']}’ 근처 가로수 데이터를 찾지 못했어요. "
         return {"final_answer":
-                f"원하시는 테마를 콕 집지 못했어요. 서울 가로수로 이런 산책길을 찾아드려요: "
+                f"{head}원하시는 테마를 콕 집지 못했어요. 서울 가로수로 이런 산책길을 찾아드려요: "
                 f"{menu}. 예를 들어 “강남구에서 봄에 벚꽃 예쁜 길”처럼 말씀해 주세요.",
                 "resolver_mode": "refuse", "visited": ["resolver"]}
     # 2) 커버리지 밖 자치구 → 지원 목록으로 유도
@@ -379,7 +462,7 @@ def resolver_node(state: RouteState) -> dict:
         try:
             llm = get_chat_model(max_tokens=400)
             msg = llm.invoke(RESOLVER_PROMPT.format(
-                q=state.get("question", ""), hits=_compact_hits(hits),
+                q=state.get("question", ""), hits=_compact_hits(hits, _place_line(state)),
                 season_label=SEASON_LABEL.get(state.get("season", ""), "")))
             if (msg.content or "").strip():
                 return {"final_answer": msg.content.strip(), "resolver_mode": "llm",
@@ -396,7 +479,7 @@ def supervisor_node(state: RouteState) -> dict:
     return {"visited": ["supervisor"]}
 
 
-Next = Literal["season", "intake", "researcher", "route", "light", "resolver", "FINISH"]
+Next = Literal["season", "intake", "places", "researcher", "route", "light", "resolver", "FINISH"]
 
 
 def route_from_supervisor(s: RouteState) -> Next:
@@ -407,8 +490,15 @@ def route_from_supervisor(s: RouteState) -> Next:
         return "season"
     if not s.get("theme"):
         return "intake"
-    if s["theme"] == "unknown" or s.get("verdict") in ("out_of_coverage", "outside_seoul"):
+    if s.get("verdict") in ("out_of_coverage", "outside_seoul"):
         return "resolver"                                 # 도구 없이 친절 안내·대안 제안
+    # 자치구는 없는데 장소 표현이 있으면 벡터DB로 먼저 해소한다 — 거절(theme=unknown)보다 먼저다.
+    # '대치동 산책길'처럼 테마까지 없는 질문도 places가 살려낼 수 있기 때문(DP15).
+    if (s.get("place") and not s.get("district") and s.get("place_hits") is None
+            and not (s.get("origin") and s.get("dest"))):
+        return "places"
+    if s["theme"] == "unknown":
+        return "resolver"                                 # 그래도 못 잡으면 친절 안내
     if s.get("hits") is None:
         if s.get("origin") and s.get("dest"):
             return "route"                                # 출발·도착 둘 다 → 회랑 경유 추천
@@ -425,6 +515,7 @@ def build_graph(checkpointer=None):
     g.add_node("supervisor", supervisor_node)
     g.add_node("season", season_node)
     g.add_node("intake", intake_node)
+    g.add_node("places", places_node)
     g.add_node("researcher", researcher_node)
     g.add_node("route", route_node)
     g.add_node("light", light_node)
@@ -432,10 +523,10 @@ def build_graph(checkpointer=None):
 
     g.add_edge(START, "supervisor")
     g.add_conditional_edges("supervisor", route_from_supervisor, {
-        "season": "season", "intake": "intake", "researcher": "researcher",
+        "season": "season", "intake": "intake", "places": "places", "researcher": "researcher",
         "route": "route", "light": "light", "resolver": "resolver", "FINISH": END,
     })
-    for name in ("season", "intake", "researcher", "route", "light"):
+    for name in ("season", "intake", "places", "researcher", "route", "light"):
         g.add_edge(name, "supervisor")
     g.add_edge("resolver", END)
     # checkpointer는 스레드 상태 복구(/threads)용. 안 넘기면 무상태로 동작.

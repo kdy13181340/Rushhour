@@ -191,8 +191,8 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-FINAL_KEYS = ("season", "theme", "district", "verdict", "intake_mode", "resolver_mode",
-              "final_answer", "hits", "light_spots", "visited")
+FINAL_KEYS = ("season", "theme", "district", "place", "place_hits", "verdict",
+              "intake_mode", "resolver_mode", "final_answer", "hits", "light_spots", "visited")
 
 
 @app.post("/chat")
@@ -233,6 +233,8 @@ def chat(body: ChatIn):
                                     "theme": final["theme"], "intake_mode": final["intake_mode"],
                                     "resolver_mode": final["resolver_mode"],
                                     "hops": (final["visited"] or []).count("supervisor"),
+                                    "place": final["place"] or None,      # 장소 해소 발동 여부(DP15)
+                                    "place_gu": (final["place_hits"] or [{}])[0].get("구"),
                                     "tool_error": (final["hits"] or {}).get("tool_error"),
                                     "elapsed_sec": final["elapsed_sec"]})
             yield _sse("final", final)

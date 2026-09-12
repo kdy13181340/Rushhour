@@ -185,6 +185,76 @@ def test_e2e_route_tool_exception_falls_back_to_no_data(app, monkeypatch):
     assert out["verdict"] == "no_data" and out["hits"]["tool_error"] == "RuntimeError"
 
 
+# ── places: 장소 표현 → 자치구 해소 (벡터DB, DP15) ─────────────────────────
+def test_rule_intake_extracts_place_only_when_district_missing():
+    assert rule_intake("양재천 근처 벚꽃길", "spring")["place"] == "양재천"
+    assert rule_intake("대치동 산책길", "spring")["place"] == "대치동"
+    # 자치구가 잡히면 장소는 비운다 — 해소할 게 없다
+    assert rule_intake("강남구 벚꽃길", "spring")["place"] == ""
+    # 서울 밖·경로 질문도 비운다(각자 다른 분기가 처리)
+    assert rule_intake("부산 해운대 벚꽃길", "spring")["place"] == ""
+    assert rule_intake("강남구에서 송파구 가는 길 벚꽃", "spring")["place"] == ""
+    # 장소가 아닌 평범한 질문에 오탐이 없어야 한다
+    for q in ("서울에서 가장 큰 벚꽃길", "오늘 날씨 어때?", "더운데 그늘진 길 없나", "지금 볼만한 길 있어?"):
+        assert rule_intake(q, "spring")["place"] == "", q
+
+
+def test_router_resolves_place_before_refusing():
+    """테마를 못 잡아도 장소가 있으면 거절 전에 places를 거친다 — places가 살려낼 수 있다."""
+    base = {"season": "spring", "theme": "unknown", "place": "대치동"}
+    assert route_from_supervisor(base) == "places"
+    # places가 한 번 다녀오면(place_hits 채워짐) 다시 가지 않는다
+    assert route_from_supervisor({**base, "place_hits": []}) == "resolver"
+    assert route_from_supervisor({**base, "place_hits": [{}], "theme": "벚꽃"}) == "researcher"
+    # 자치구를 이미 알면 해소할 게 없다
+    assert route_from_supervisor({**base, "theme": "벚꽃", "district": "강남구"}) == "researcher"
+    # 서울 밖·커버리지 밖은 검색하지 않고 바로 안내
+    assert route_from_supervisor({**base, "verdict": "outside_seoul"}) == "resolver"
+    # 경로 질문은 route 분기가 가져간다
+    assert route_from_supervisor({**base, "theme": "벚꽃", "origin": "강남구", "dest": "송파구"}) == "route"
+
+
+def test_new_turn_input_clears_place_fields():
+    keys = G.new_turn_input("q")
+    assert keys["place"] == "" and keys["place_hits"] is None
+
+
+def test_e2e_place_resolves_to_district(app, rag_index):
+    """'양재천 근처 벚꽃길' — 전에는 자치구를 잃고 서울 전체를 뒤졌다."""
+    out = run_one(app, "석촌호수 벚꽃 보고싶어")
+    assert "places" in out["visited"] and out["place"] == "석촌호수"
+    assert out["district"] == "송파구" and out["hits"]["district"] == "송파구"
+    assert out["verdict"] == "match"
+    assert "석촌호수" in out["final_answer"] and "송파구" in out["final_answer"]  # 해석을 밝힌다
+
+
+def test_e2e_place_infers_theme_and_never_picks_avoid(app, rag_index):
+    """테마 단서가 없는 '○○동 산책길'도 거절 대신 답한다. 단 '피하는 길'을 권하면 안 된다(DP5)."""
+    out = run_one(app, "대치동 산책길 추천해줘")
+    assert out["theme"] != "unknown" and out["verdict"] == "match"
+    assert out["hits"]["mode"] == "prefer", out["theme"]      # avoid 테마를 '추천'으로 내밀지 않는다
+    assert "researcher" in out["visited"]
+
+
+def test_e2e_place_without_index_degrades_gracefully(app, monkeypatch, tmp_path):
+    """인덱스가 없어도 그래프는 죽지 않는다 — 장소만 못 살리고 서울 전체로 답한다."""
+    monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "없는인덱스"))
+    out = run_one(app, "석촌호수 벚꽃 보고싶어")
+    assert out["place_hits"] == [] and out["district"] == ""
+    assert out["verdict"] == "match" and out["hits"]["district"] == "서울 전체"
+    assert "석촌호수" not in out["final_answer"]              # 해소 못 했으면 해석을 말하지 않는다
+
+
+def test_e2e_place_search_exception_falls_back(app, monkeypatch, rag_index):
+    import types
+
+    def boom(args):
+        raise RuntimeError("테스트: 임베딩 서버 다운")
+    monkeypatch.setattr(G, "search_places", types.SimpleNamespace(invoke=boom))
+    out = run_one(app, "석촌호수 벚꽃 보고싶어")
+    assert out["place_hits"] == [] and out["verdict"] == "match"   # 검색만 실패, 답변은 나온다
+
+
 def test_e2e_fence_terminates(monkeypatch):
     """resolver가 final_answer를 못 채우는 결함이 있어도 울타리로 끝난다."""
     monkeypatch.setattr(G, "resolver_node", lambda s: {"visited": ["resolver"]})
