@@ -42,14 +42,23 @@
 
     <aside class="chat" id="chatpanel">
       <div class="chat-head">
-        <div class="ch-title">🗺 경로 추천 챗봇</div>
-        <div class="ch-sub">계절·수종·분위기를 자유롭게 입력하세요</div>
+        <div class="ch-title">🌿 서울 가로수길 챗봇</div>
+        <div class="ch-sub">어떤 산책길을 원하시나요?</div>
         <div class="chips" id="chips"></div>
       </div>
 
       <div class="chat-scroll" id="chatlog"></div>
 
       <div class="chat-foot">
+        <!-- 산책길 검색(출발지 → 목적지) 팝오버 -->
+        <div class="rf-pop" id="rf-pop" hidden>
+          <div class="rf-title"><span class="rf-ico">⌖</span> 산책 경로 요청</div>
+          <input id="rf-origin" type="text" autocomplete="off" placeholder="출발지 입력">
+          <input id="rf-dest" type="text" autocomplete="off" placeholder="목적지 입력">
+          <button type="button" id="rf-send" disabled>경로 요청 보내기</button>
+        </div>
+        <button type="button" class="rf-toggle" id="rf-toggle" aria-expanded="false"
+                aria-controls="rf-pop">🌸🌳🍂🌲 산책길 검색하기</button>
         <form class="field" id="chatform">
           <input id="q" type="text" autocomplete="off"
                  placeholder="예: 가을에 은행나무 단풍길 추천해줘">

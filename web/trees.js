@@ -47,12 +47,12 @@ const TREE_SVGS = {
 
   'ginkgo-avoid': (s) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s+10}" viewBox="0 0 ${s} ${s+10}">
     <line x1="${s/2}" y1="${s*0.62}" x2="${s/2}" y2="${s+8}" stroke="#5c4a1e" stroke-width="${s*0.07}" stroke-linecap="round"/>
-    <ellipse cx="${s/2}" cy="${s*0.38}" rx="${s*0.28}" ry="${s*0.35}" fill="#f4a261" opacity="0.88"/>
-    <ellipse cx="${s*0.38}" cy="${s*0.32}" rx="${s*0.2}" ry="${s*0.25}" fill="#e9803a" opacity="0.82"/>
-    <ellipse cx="${s*0.6}" cy="${s*0.3}" rx="${s*0.19}" ry="${s*0.23}" fill="#f9b88a" opacity="0.78"/>
+    <circle cx="${s/2}" cy="${s*0.36}" r="${s*0.3}" fill="#f3c94d" opacity="0.92"/>
+    <circle cx="${s*0.37}" cy="${s*0.29}" r="${s*0.19}" fill="#f8da70" opacity="0.88"/>
+    <circle cx="${s*0.63}" cy="${s*0.3}" r="${s*0.18}" fill="#e9b949" opacity="0.84"/>
     <path d="M${s/2},${s*0.14} Q${s*0.42},${s*0.2} ${s*0.36},${s*0.28} Q${s*0.44},${s*0.22} ${s/2},${s*0.14}" fill="#fcd5a8" opacity="0.7"/>
     <path d="M${s/2},${s*0.14} Q${s*0.58},${s*0.2} ${s*0.64},${s*0.28} Q${s*0.56},${s*0.22} ${s/2},${s*0.14}" fill="#fcd5a8" opacity="0.7"/>
-    <circle cx="${s/2}" cy="${s*0.14}" r="${s*0.03}" fill="#e9803a"/>
+    <circle cx="${s/2}" cy="${s*0.14}" r="${s*0.03}" fill="#c99022"/>
   </svg>`,
 
   'ginkgo-enjoy': (s) => `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s+10}" viewBox="0 0 ${s} ${s+10}">
@@ -104,7 +104,44 @@ const TREE_SVGS = {
     <line x1="${s*0.4}" y1="${s*0.35}" x2="${s*0.15}" y2="${s*0.48}" stroke="#1b4332" stroke-width="${s*0.025}" opacity="0.35"/>
     <line x1="${s*0.4}" y1="${s*0.35}" x2="${s*0.65}" y2="${s*0.48}" stroke="#1b4332" stroke-width="${s*0.025}" opacity="0.35"/>
   </svg>`,
+
+  /* figma2 시안이 추가한 크리스마스 트리(전구가 깜빡인다). 백엔드에 겨울 테마가 생기면 바로 쓰인다. */
+  christmas: (s, seed) => {
+    const lights = [
+      { cx: s*0.4, cy: s*0.15, c: '#ff4444' },
+      { cx: s*0.25, cy: s*0.32, c: '#ffdd00' },
+      { cx: s*0.55, cy: s*0.3, c: '#44aaff' },
+      { cx: s*0.2, cy: s*0.52, c: '#ff44aa' },
+      { cx: s*0.5, cy: s*0.48, c: '#44ff88' },
+      { cx: s*0.62, cy: s*0.54, c: '#ffdd00' },
+      { cx: s*0.3, cy: s*0.68, c: '#ff4444' },
+      { cx: s*0.55, cy: s*0.66, c: '#44aaff' },
+    ];
+    const lightSvg = lights.map((l) => {
+      const on = (seed + l.cx) % 3 !== 0;
+      return `<circle cx="${l.cx}" cy="${l.cy}" r="${s*0.045}" fill="${on ? l.c : '#555'}" opacity="${on ? 0.95 : 0.4}">
+        ${on ? `<animate attributeName="opacity" values="0.95;0.4;0.95" dur="${1.2 + (l.cx % 0.8)}s" repeatCount="indefinite"/>` : ''}
+      </circle>`;
+    }).join('');
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${s*0.82}" height="${s+12}" viewBox="0 0 ${s*0.82} ${s+12}">
+      <rect x="${s*0.34}" y="${s*0.8}" width="${s*0.14}" height="${s*0.22}" rx="${s*0.02}" fill="#6d4c41"/>
+      <polygon points="${s*0.41},${s*0.04} ${s*0.08},${s*0.44} ${s*0.74},${s*0.44}" fill="#1a5c35" opacity="0.97"/>
+      <polygon points="${s*0.41},${s*0.22} ${s*0.06},${s*0.58} ${s*0.76},${s*0.58}" fill="#2d7a4f" opacity="0.93"/>
+      <polygon points="${s*0.41},${s*0.4} ${s*0.04},${s*0.78} ${s*0.78},${s*0.78}" fill="#40916c" opacity="0.88"/>
+      ${lightSvg}
+      <polygon points="${s*0.41},${s*0.0} ${s*0.37},${s*0.09} ${s*0.45},${s*0.09}" fill="#ffd700"/>
+      <circle cx="${s*0.41}" cy="${s*0.04}" r="${s*0.04}" fill="#ffe44d" opacity="0.9">
+        <animate attributeName="opacity" values="0.9;0.3;0.9" dur="0.8s" repeatCount="indefinite"/>
+      </circle>
+    </svg>`;
+  },
 };
+
+/* 시안(figma2) getTreeSvg — 은행 단풍길은 단풍(maple) 그림을 쓴다. */
+function illustrationId(routeId) {
+  if (routeId === 'ginkgo-enjoy') return 'maple';
+  return routeId;
+}
 
 /* 시안의 크기 변주 — 같은 수종이라도 그루마다 조금씩 다르게 보이게 한다. */
 const SIZE_VARIANTS = [38, 42, 36, 44, 40, 38, 46, 34, 40, 42];
@@ -112,8 +149,9 @@ const SIZE_VARIANTS = [38, 42, 36, 44, 40, 38, 46, 34, 40, 42];
 /** 나무 한 그루짜리 Leaflet divIcon. 시안과 같이 밑동(anchor)을 좌표에 맞춘다. */
 function treeIcon(routeId, seed) {
   const size = SIZE_VARIANTS[seed % SIZE_VARIANTS.length];
-  const draw = TREE_SVGS[routeId] || TREE_SVGS.shade;
-  const w = (routeId === 'metasequoia' || routeId === 'evergreen') ? size * 0.7 : size;
+  const draw = TREE_SVGS[illustrationId(routeId)] || TREE_SVGS.shade;
+  const w = (routeId === 'metasequoia' || routeId === 'evergreen') ? size * 0.7
+          : routeId === 'christmas' ? size * 0.82 : size;
   const h = size + 12;
   return L.divIcon({
     html: draw(size, seed), className: 'tree-pin',

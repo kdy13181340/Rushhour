@@ -43,7 +43,11 @@ def chroma_path() -> Path:
 
 # ── 문서 만들기 ──────────────────────────────────────────────────────────────
 def _theme_tags(seg) -> tuple[list[str], list[str], list[str]]:
-    """(추천 테마 문구, 회피 테마 문구, 테마 키) — 그루수 THEME_MIN 이상인 테마만.
+    """(추천 테마 문구, 회피 테마 문구, 테마 키) — 그루수 THEME_MIN(테마별 tag_min이 있으면 그것) 이상인 테마만.
+
+    tag_min: 수종이 겹치는 테마(크리스마스·상록은 둘 다 소나무)를 20그루 문턱으로 붙이면 소나무 몇 그루
+    끼어 있는 큰길마다 긴 태그 두 줄이 붙어 지명 신호('석촌호수로')가 묻힌다 — 해시 채널에서 실측
+    ('석촌호수' → 송파구 해소 실패). 정말 그 테마의 길인 노선만 태그되게 테마가 스스로 문턱을 올린다.
 
     추천 테마엔 themes.py의 keywords(꽃구경·플라타너스·시원 …)를 함께 넣어 구어체 질의가 문서에 닿게 한다
     — 테마 어휘의 단일 출처를 재사용하는 것이지 평가 질의에 맞춘 게 아니다. 회피 테마(은행회피)엔
@@ -52,7 +56,7 @@ def _theme_tags(seg) -> tuple[list[str], list[str], list[str]]:
     prefer, avoid, keys = [], [], []
     for key, spec in THEMES.items():
         n = int(seg["수종"].isin(spec["species"]).sum())
-        if n < THEME_MIN:
+        if n < spec.get("tag_min", THEME_MIN):
             continue
         keys.append(key)
         if spec["mode"] == "prefer":
