@@ -119,6 +119,21 @@ ROUTE_PRESENTATION = {
     "theme": {"id": "route-theme", "emoji": "🌳", "color": "#2d6a4f"},
     "avoid": {"id": "route-avoid", "emoji": "🚫", "color": "#e2574c"},
 }
+# 경로 카드에서만 쓰는 짧은 테마 이름. '가을 은행 단풍길 지나는 길'은 길어서 '가을 단풍길 지나는 길'로.
+# 좌측 목록·범례의 테마 이름(THEMES label)은 그대로다.
+ROUTE_THEME_SHORT = {"은행단풍": "가을 단풍길"}
+# 카드·지도 나무 그림 — 테마 나무 그림(trees.js) 키. 단풍길은 단풍나무, 열매 회피는 은행나무.
+ROUTE_THEME_EMOJI = {"은행단풍": "🍁", "은행회피": "🟡"}
+
+
+def route_card_name(kind: str, theme: str, label: str) -> str:
+    """경로 대안 카드 제목. 회피 테마의 label('은행 열매 밟지 않는 길')은 이미 길 이름이라 접미를 안 붙인다."""
+    spec = THEMES.get(theme, {})
+    if kind == "theme" and theme:
+        return f"{ROUTE_THEME_SHORT.get(theme, spec.get('label', theme))} 지나는 길"
+    if kind == "avoid" and theme:
+        return spec.get("label", label)
+    return label
 
 
 def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
@@ -131,17 +146,21 @@ def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
     for r in hits.get("routes", []):
         meta = ROUTE_PRESENTATION.get(r["kind"], ROUTE_PRESENTATION["theme"])
         spec = THEMES.get(r.get("theme") or "", {})
-        if r.get("theme") and r["theme"] in PRESENTATION and r["kind"] == "theme":
-            meta = {**meta, "color": PRESENTATION[r["theme"]]["color"],
-                    "emoji": PRESENTATION[r["theme"]]["emoji"]}
+        theme = r.get("theme") or ""
+        if theme in PRESENTATION and r["kind"] == "theme":
+            meta = {**meta, "color": PRESENTATION[theme]["color"]}
+        if theme in PRESENTATION:
+            meta = {**meta, "emoji": ROUTE_THEME_EMOJI.get(theme, PRESENTATION[theme]["emoji"])}
         detour = f" · +{r['detour_pct']}%" if r["detour_pct"] else ""
         trees = ""
         if r.get("theme"):
             verb = "피함" if r["kind"] == "avoid" else "지남"
             trees = f" · {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
         out.append({
-            "id": meta["id"], "key": r["kind"], "name": r["label"], "emoji": meta["emoji"],
-            "color": meta["color"], "mode": "route",
+            "id": meta["id"], "key": r["kind"], "name": route_card_name(r["kind"], theme, r["label"]),
+            "emoji": meta["emoji"], "color": meta["color"], "mode": "route",
+            # 화면이 테마 나무를 경로 회랑에 그리고(theme_key), 카드 아이콘을 나무 그림으로 바꾸는 데(icon) 쓴다.
+            "theme_key": theme, "icon": PRESENTATION[theme]["id"] if theme in PRESENTATION else "",
             "season": (spec.get("seasons") or [season or "autumn"])[0],
             "seasonLabel": (f"{r['distance_m']:,}m · 약 {r.get('minutes', 0)}분{detour}"
                             f" · 걷는 길 {round(r.get('walk_share', 0) * 100)}%{trees}"),

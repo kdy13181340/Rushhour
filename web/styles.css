@@ -230,6 +230,11 @@ input{font:inherit}
 }
 .card:hover{background:var(--line28)}
 .card .emoji{font-size:20px}
+/* 경로 카드·범례의 나무 그림 아이콘(trees.js SVG). 밑동 여백(+12) 때문에 살짝 위로 올린다. */
+.emoji.tree{display:inline-flex; align-items:flex-end; line-height:0; flex-shrink:0}
+.emoji.tree svg{display:block; width:var(--tree,26px); height:auto; margin-bottom:-2px}
+.legend .row .emoji.tree{margin-right:0}
+.legend .row .emoji.tree + span{margin-left:0}
 .card .txt{flex:1; min-width:0}
 .card .nm{font-size:13px; font-weight:600; color:var(--fg)}
 .card .sub{font-size:11px; color:var(--muted-fg); margin-top:1px}

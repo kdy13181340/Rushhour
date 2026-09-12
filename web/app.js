@@ -65,6 +65,14 @@ function decorate(r) {
   return r;
 }
 const emojiClass = (r) => 'emoji' + (r.id === 'ipaeb' ? ' ipaeb' : '');
+/** 카드·범례 아이콘. 경로 카드(icon=테마 나무 그림 키)는 trees.js의 나무 그림을, 나머지는 이모지. */
+function iconHtml(r, size) {
+  const key = r.icon && typeof illustrationId === 'function' ? illustrationId(r.icon) : '';
+  if (key && TREE_SVGS[key]) {
+    return `<span class="emoji tree" style="--tree:${size || 26}px">${TREE_SVGS[key](size || 26, 1)}</span>`;
+  }
+  return `<span class="${emojiClass(r)}">${r.emoji}</span>`;
+}
 
 /* ── 나무 그리기(DP24) ──────────────────────────────────────
    두 갈래 자료를 같은 나무 그림으로 그린다.
@@ -180,15 +188,64 @@ function treeCount(s, line) {
   return Math.max(1, Math.min(26, n, known));
 }
 
-/* 켠 테마에 맞는 나무를 받아 둔다. 토글은 두지 않는다 — 물은 것만 보여 주면 된다. */
+/* 켠 테마에 맞는 나무를 받아 둔다. 토글은 두지 않는다 — 물은 것만 보여 주면 된다.
+   경로 카드(route-theme·route-avoid)는 theme_key의 나무를 그 경로 회랑(ROUTE_CORRIDOR_M) 안만 남겨
+   그린다 — '이 길을 걸으면 이 나무를 지난다/피한다'를 지도에서 보이게. 같은 좌표를 두 경로가
+   나눠 가지지 않도록 먼저 온 경로가 가져간다(단풍길과 열매 회피길은 같은 은행나무를 본다). */
+const ROUTE_CORRIDOR_M = 60;
 async function refreshSpots() {
   const known = new Set(state.routes.map((r) => r.key));
-  await Promise.all(state.active.map(async (r) => {
+  const claimed = new Set();
+  for (const r of state.active) {
+    if (r.mode === 'route') {
+      r._spots = []; r._all = [];
+      const theme = known.has(r.theme_key) ? r.theme_key : '';
+      if (!theme || !(r.paths || []).length) { r.points = []; continue; }
+      const all = await loadThemeTrees(theme);
+      r.points = nearPaths(all, r.paths, ROUTE_CORRIDOR_M).filter((p) => {
+        const k = p[0].toFixed(5) + ',' + p[1].toFixed(5);
+        if (claimed.has(k)) return false;
+        claimed.add(k); return true;
+      });
+      continue;
+    }
     const theme = known.has(r.key) ? r.key : '';
-    if (!theme) { r._spots = []; r._all = []; return; }
+    if (!theme) { r._spots = []; r._all = []; continue; }
     [r._all, r._spots] = await Promise.all([loadThemeTrees(theme), loadSpots(theme)]);
-  }));
+  }
   drawTrees();
+}
+
+/** 선(들)에서 maxM 미터 안에 있는 점만. 위경도를 미터 평면으로 눌러 선분 거리로 잰다. */
+function nearPaths(points, paths, maxM) {
+  const segs = [];
+  let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+  paths.forEach((path) => {
+    for (let i = 1; i < path.length; i++) segs.push([path[i - 1], path[i]]);
+    path.forEach(([la, ln]) => {
+      if (la < minLat) minLat = la; if (la > maxLat) maxLat = la;
+      if (ln < minLng) minLng = ln; if (ln > maxLng) maxLng = ln;
+    });
+  });
+  if (!segs.length) return [];
+  const kLat = 111320, kLng = 111320 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+  const padLat = maxM / kLat, padLng = maxM / kLng;
+  const out = [];
+  for (const p of points) {
+    const [la, ln] = p;
+    if (la < minLat - padLat || la > maxLat + padLat || ln < minLng - padLng || ln > maxLng + padLng) continue;
+    let best = Infinity;
+    for (const [[a1, o1], [a2, o2]] of segs) {
+      const ax = (o1 - ln) * kLng, ay = (a1 - la) * kLat, bx = (o2 - ln) * kLng, by = (a2 - la) * kLat;
+      const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+      const cx = ax + t * dx, cy = ay + t * dy;
+      const d = cx * cx + cy * cy;
+      if (d < best) { best = d; if (best <= maxM * maxM) break; }
+    }
+    if (best <= maxM * maxM) out.push(p);
+  }
+  return out;
 }
 
 /* ── 지도 ─────────────────────────────────────────────────── */
@@ -308,7 +365,7 @@ function drawTrees() {
     // ① 가로수 대장 — 그 테마 전부에서 화면에 보이는 것만. 좁힌 답변이면 그 점을 먼저 쓴다.
     const pool = (r.points && r.points.length ? r.points : null) || r._all || [];
     visibleTrees(pool, cap).forEach(([lat, lng], i) => {
-      L.marker([lat, lng], { icon: treeIcon(r.id, (i * 7) % 10), interactive: false })
+      L.marker([lat, lng], { icon: treeIcon(r.icon || r.id, (i * 7) % 10), interactive: false })
         .addTo(treeLayer);
     });
     // ② 합본 — 대장에 없는 공원·하천·전국. 좌표가 노선당 한 점뿐이라 한 그루처럼 보이므로,
@@ -420,7 +477,7 @@ function renderLegend() {
   el.innerHTML = `<h4>표시된 경로 (${state.active.length})</h4>` +
     state.active.map((r) => `<div class="row">
       <div class="bar" style="background:${r.color}"></div>
-      <span>${r.emoji} ${esc(r.name)}</span></div>`).join('');
+      ${iconHtml(r, 18)}<span>${esc(r.name)}</span></div>`).join('');
 }
 
 function applySeason() {
@@ -448,7 +505,7 @@ function cardsHtml(routes) {
   return `<div class="cards">` + routes.map((r) => `
     <button class="card" data-id="${r.id}"
       style="--line15:${r.color}15;--line28:${r.color}28;--line44:${r.color}44">
-      <span class="${emojiClass(r)}">${r.emoji}</span>
+      ${iconHtml(r, 26)}
       <span class="txt">
         <span class="nm">${esc(r.name)}</span>
         <span class="sub">${esc(r.district)} · ${esc(r.seasonLabel)} · ${nf(r.treeCount)}그루</span>
