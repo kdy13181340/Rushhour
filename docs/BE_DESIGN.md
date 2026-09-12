@@ -12,8 +12,10 @@ C1~C6 구현 완료(서버 없이 검증, tests 75건 통과). C7 중 `search_pl
 결정은 `DECISIONS.md` DP4~DP15.
 
 **BE 남은 것**:
+- **`seoul_theme_spots` 배선** — 공원·하천 산책로 데이터셋을 만들었지만(DP24) 도구가 아직 안 쓴다.
+  `find_theme_streets`가 출처를 구분해 함께 답하도록 확장할 것
 - **겨울 테마 콘텐츠** — 메타세쿼이아뿐이라 표본의 95%가 근처에 한 그루도 없다. 상록수 테마를
-  더할지 팀 결정 필요(DP23)
+  더할지 팀 결정 필요(DP23). 단풍길 110선에 겨울 소재가 있는지도 같이 볼 것
 - 장소 해소 테스트 2건의 간헐 실패(1/4) 미해결 — 진단 메시지만 심어 둠(DP23)
 - 나무 마커 좌표도 도로에 스냅해서 줄지(지금은 원본 좌표) — DP20 남은 것
 - `size_weight` 모델 독립 정규화 — 후보 안에서 유사도를 정규화한 뒤 더하기(DP14 후속)
@@ -168,7 +170,7 @@ Rushhour/
     main.py  api/chat.py api/tools.py api/health.py
     trace.py                # Tracer: langfuse | jsonl
   scripts/01_csv_to_parquet.py 02_build_vector_db.py 03_eval_search_places.py 04_fetch_osm.py
-          05_snap_trees.py 06_eval_routes.py                              (예정: ingest_light_docs)
+          05_snap_trees.py 06_eval_routes.py 07_build_theme_spots.py       (예정: ingest_light_docs)
   data/ (raw csv · processed/ parquet · eval/{search_places,route_pairs}.jsonl · chroma/<채널>/ · osm/)
   tests/test_tools.py test_router.py test_api.py test_rag.py test_routing.py   # LLM·임베딩·도로망 없이 돌아가야 함
   docs/BE_DESIGN.md DECISIONS.md
@@ -201,6 +203,7 @@ Rushhour/
 | DP21 | 밑그림 타일 | Esri는 서울 z16부터 빈 타일 → OSM 표준 + CSS 톤 필터(키 불필요, 카카오 톤) |
 | DP22 | 경로 보행성 검증 | 12개 조합 자동차전용 0%, 한강도 보행로로 건넘. 단풍 경로만 간선 비율 높음 |
 | DP23 | 경로 가중치 재조정 | 표본 80쌍 약속 검증 → α 0.55→0.8, β 2→3. 도보계수는 +3.4%로 거의 공짜 |
+| DP24 | 공원·하천 산책로 | 공공자료 3종 합본(seoul_theme_spots). 합치되 더하지 않음(대표 행) |
 | DP18 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
 
 ## 8. 작업 순서와 분담 제안 (초안의 A/B/C 유지)

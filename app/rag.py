@@ -122,8 +122,12 @@ def build_index(embedder=None, docs: list[dict] | None = None, path: Path | None
     meta = {"embed_signature": embedder.signature, "embed_channel": embedder.channel,
             "embed_model": embedder.model, "embed_state_file": getattr(embedder, "STATE_FILE", ""),
             "docs": len(docs), "source": data_source(), "built_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    col = client.create_collection(COLLECTION, embedding_function=None,
-                                   configuration={"hnsw": {"space": "cosine"}}, metadata=meta)
+    # HNSW는 근사 검색이다. 문서가 1,780건뿐이라 탐색 폭을 크게 잡으면 사실상 정확 검색이 되고
+    # 비용도 무시할 만하다(질의 0.01초). 기본값(ef_search=100)에서는 기계가 바쁠 때 상위 결과가
+    # 드물게 흔들려 '석촌호수→송파구' 같은 테스트가 간헐 실패했다(DP23 곁가지).
+    col = client.create_collection(
+        COLLECTION, embedding_function=None, metadata=meta,
+        configuration={"hnsw": {"space": "cosine", "ef_construction": 200, "ef_search": 400}})
     t0, dim = time.time(), 0
     for i in range(0, len(docs), batch):
         chunk = docs[i:i + batch]

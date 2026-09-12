@@ -21,6 +21,7 @@ scripts/03_eval_search_places.py  검색 품질 hit@k·MRR                      
 scripts/04_fetch_osm.py        서울 보행 도로망(OSM) 1회 내려받기 → data/osm/       — BE
 scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별 테마 점수         — BE
 scripts/06_eval_routes.py      경로 가중치 검증(약속을 지키는지) — data/eval/route_pairs  — BE
+scripts/07_build_theme_spots.py 공공자료 3종 → 테마길 합본(공원·하천 산책로 포함)        — BE
 app/
   themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A
@@ -73,6 +74,10 @@ $env:PYTHONUTF8 = "1"                          # cp949 콘솔에서 한글·기�
 $env:AGENT_CHANNEL = "none"; .venv\Scripts\python -m pytest tests -q
 $env:AGENT_CHANNEL = "none"; .venv\Scripts\python -m uvicorn backend.main:app --port 8000
 ```
+
+데이터 원본(모두 공공데이터)은 저장소에 포함 — 가로수 대장 외에 `서울 단풍길 110선`(공원·하천변·
+등산로), `전국가로수길정보표준데이터`(노선별 좌표·연장), `서울시 공원 및 사유지수목`(중구만).
+`scripts/07`이 이들을 합쳐 `data/processed/seoul_theme_spots.parquet`를 만든다(결정·한계는 DP24).
 
 데이터 원본은 저장소에 포함(`data/seoul_tree_data.csv`, 서울 열린데이터광장「2026 서울시 가로수 위치정보」).
 
