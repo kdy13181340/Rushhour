@@ -113,7 +113,10 @@ def from_nation(seoul_only: bool = False) -> pd.DataFrame:
     ok = (df["가로수길시작위도"].between(33, 39) & df["가로수길시작경도"].between(124, 132))
     df = df[ok].copy()
     df["테마"] = df["가로수종류"].map(lambda x: ",".join(themes_of(x)))
-    df = df[(df["테마"] != "") & (df["가로수수량"].fillna(0) >= MIN_TREES)]
+    # 그루수를 '모르는 것'과 '적은 것'은 다르다. 비어 있으면 남긴다 — 제주는 154개 노선이 전부
+    # 수량 미기재라, fillna(0)으로 거르면 왕벚나무 원산지가 통째로 사라진다(실측 후 수정).
+    known = df["가로수수량"].notna()
+    df = df[(df["테마"] != "") & (~known | (df["가로수수량"] >= MIN_TREES))]
     parts = df["제공기관명"].astype(str).str.split(n=1)
     sido = parts.str[0]
     sigungu = parts.str[1].fillna(sido)
@@ -123,7 +126,8 @@ def from_nation(seoul_only: bool = False) -> pd.DataFrame:
         "노선명": df["가로수길명"].astype(str).str.strip(),
         "구간": df["도로구간"].fillna("").astype(str),
         "수종": df["가로수종류"].astype(str), "테마": df["테마"],
-        "그루수": df["가로수수량"].fillna(0).astype(int), "연장_km": df["가로수길길이"],
+        "그루수": df["가로수수량"].round().astype("Int64"),   # 미기재는 0이 아니라 <NA>로 둔다
+        "연장_km": df["가로수길길이"],
         "특징": df["가로수길소개"].fillna("").astype(str),
         "위도": df[["가로수길시작위도", "가로수길종료위도"]].mean(axis=1).round(6),
         "경도": df[["가로수길시작경도", "가로수길종료경도"]].mean(axis=1).round(6),
@@ -277,6 +281,13 @@ def fix_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _harmonize(df: pd.DataFrame) -> pd.DataFrame:
+    """그루수를 nullable 정수로 통일한다 — 미기재(<NA>)와 0을 섞지 않기 위해서."""
+    df = df.copy()
+    df["그루수"] = pd.to_numeric(df["그루수"], errors="coerce").round().astype("Int64")
+    return df
+
+
 def mark_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     key = list(zip(df["시군구"].astype(str), df["노선명"].astype(str)))
@@ -314,23 +325,36 @@ def main() -> None:
         import numpy as np
         import routing as R
         g = R._graph()
-        pools.append(("OSM", {str(x) for x in np.unique(g["name"]) if str(x) not in ("", "nan")}, {}))
+        # 이름만 맞추고 좌표를 안 가져오면 지도에 못 올린다(송파나루 근린공원 1,660그루가 그랬다).
+        # 그 이름을 가진 간선들의 좌표 평균을 같이 담는다.
+        names, osm_coords = g["name"], {}
+        lat0 = g["lat"][g["ui"]]                     # 간선 시작 노드 좌표로 대표점을 잡는다
+        lon0 = g["lon"][g["ui"]]
+        for nm in np.unique(names):
+            key = str(nm)
+            if key in ("", "nan"):
+                continue
+            m = names == nm
+            osm_coords[key] = {"gus": set(), "lat": round(float(lat0[m].mean()), 6),
+                               "lon": round(float(lon0[m].mean()), 6)}
+        pools.append(("OSM", set(osm_coords), osm_coords))
     except Exception as exc:  # noqa: BLE001 — 도로망이 없어도 나머지로 만든다
         print(f"(도로망 없음: {type(exc).__name__} — OSM 이름 매칭은 건너뛴다)")
 
     b = from_maple(pools)
-    out = mark_duplicates(fix_length(pd.concat([c, b, d, a], ignore_index=True)))
+    out = mark_duplicates(fix_length(_harmonize(pd.concat([c, b, d, a], ignore_index=True))))
 
-    print(f"A 서울 가로수 대장   {len(a):6,}개 · {a['그루수'].sum():9,}그루 (좌표 있음)")
-    print(f"C 전국 표준데이터    {len(c):6,}개 · {c['그루수'].sum():9,}그루 · "
+    print(f"A 서울 가로수 대장   {len(a):6,}개 · {int(a['그루수'].sum()):9,}그루 (좌표 있음)")
+    print(f"C 전국 표준데이터    {len(c):6,}개 · {int(c['그루수'].sum()):9,}그루 · "
           f"시도 {c['시도'].nunique()}곳 (좌표 있음)")
-    print(f"D 중구 상세 2종     {len(d):6,}개 · {d['그루수'].sum():9,}그루 (좌표 있음)")
-    print(f"B 단풍길 110선     {len(b):6,}개 · {b['그루수'].sum():9,}그루 · "
+    print(f"D 중구 상세 2종     {len(d):6,}개 · {int(d['그루수'].sum()):9,}그루 (좌표 있음)")
+    print(f"B 단풍길 110선     {len(b):6,}개 · {int(b['그루수'].sum()):9,}그루 · "
           f"좌표 얻음 {int(b['위도'].notna().sum())}/{len(b)} · {b['구분'].value_counts().to_dict()}")
     rep = out[out["대표"]]
     print(f"\n합계 {len(out):,}행 · 좌표 있는 행 {int(out['위도'].notna().sum()):,} · "
           f"겹치는 행 {int((out['중복출처'] != '').sum()):,}")
-    print(f"대표 행(중복 제거) {len(rep):,}개 — 그루수는 이것만 센다")
+    na = int(rep["그루수"].isna().sum())
+    print(f"대표 행(중복 제거) {len(rep):,}개 — 그루수는 이것만 센다 (그루수 미기재 {na:,}개)")
     fixed = int((out["연장보정"] == "m→km 보정").sum())
     blank = int((out["연장보정"] == "값 이상 — 비움").sum())
     print(f"연장 단위 보정 {fixed:,}행(미터로 적힌 것) · 판별 못 해 비운 것 {blank:,}행")
@@ -340,7 +364,7 @@ def main() -> None:
     print(f"{'테마':12s} {'대표':>7s} {'그루수':>12s} {'서울':>7s} {'전국':>7s}")
     for t in THEME_WORDS:
         r = rep[rep["테마"].str.contains(t, na=False)]
-        print(f"  {t:10s} {len(r):6,} {r['그루수'].sum():11,} "
+        print(f"  {t:10s} {len(r):6,} {int(r['그루수'].sum()):11,} "
               f"{int((r['지역구분'] == '서울').sum()):6,} {int((r['지역구분'] == '전국').sum()):6,}")
     print()
     print("시도별 대표 노선 수:")

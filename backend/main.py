@@ -13,7 +13,8 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
   POST /tools/find_theme_streets   LLM 없이 도구만 호출 (사이드바 '빠른 추천')
   POST /tools/search_places        벡터DB 의미검색 (동네·지명·구어체 → (구, 노선) 후보)  [RAG]
   POST /tools/plan_route           출발→도착 경로 3가지 (최단·테마 경유·회피)  [DP17]
-  GET  /spots                      테마길 명소(공원·하천·전국) — 공공자료 합본  [DP24]
+  GET  /spots                      테마길 목록(공원·하천·전국) — 공공자료 합본  [DP24]
+  GET  /spots/points               좌표 있는 노선을 전부 — 지도에 나무로 뿌리는 용도
   GET  /themes  · GET /districts   UI 셀렉트박스용 메타
   GET  /map/street_points          지도 마커 좌표 (map_api.street_points)
 """
@@ -40,7 +41,7 @@ from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points                      # noqa: E402
 from rag import rag_status, search_places              # noqa: E402
 from routing import osm_status, plan_route             # noqa: E402
-from spots import find_spots, spots_status             # noqa: E402
+from spots import all_points, find_spots, spots_status  # noqa: E402
 from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_model   # noqa: E402
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
@@ -179,6 +180,12 @@ def tool_plan_route(q: RouteQuery):
                                         "ok": res.get("ok"),
                                         "kinds": [r["kind"] for r in res.get("routes", [])]})
     return res
+
+
+@app.get("/spots/points")
+def spot_points(theme: str = ""):
+    """좌표가 있는 노선을 전부 — 지도에 점(나무)으로 뿌린다. 필드를 줄여 한 번에 보낸다."""
+    return all_points(theme=theme)
 
 
 @app.get("/spots")

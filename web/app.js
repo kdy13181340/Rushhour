@@ -50,39 +50,39 @@ const nf = (n) => Number(n).toLocaleString('ko-KR');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ── 공공자료 합본 명소(DP24) ────────────────────────────────
-   가로수 대장 밖의 공원·하천·등산로와 서울 밖 노선까지 담은 목록이다.
-   좌표가 노선당 한 점(또는 시작·종료 두 점)뿐이라 **선이 아니라 점**으로 찍는다 —
-   두 점을 이어 선을 그리면 실제 도로를 따라간 경로처럼 보여 거짓이 된다. */
+/* ── 공공자료 합본의 나무(DP24) ──────────────────────────────
+   가로수 대장 밖의 공원·하천·등산로와 **전국** 노선까지, 좌표가 있는 것을 전부 찍는다.
+   좌표는 노선당 대표점 하나뿐이라 **선이 아니라 점**이다 — 두 점을 이어 선을 그리면
+   실제 도로를 따라간 경로처럼 보여 거짓이 된다. 점 크기는 그루수, 색은 구분이다. */
 const SPOT_COLOR = { 가로: '#2d6a4f', 공원: '#40916c', 하천변: '#1565c0', 등산로: '#8a6d3b' };
+
 async function loadSpots() {
-  const theme = state.active[0] ? state.active[0].key : '';
-  const url = `/spots?k=300${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
-  const d = await (await fetch(url)).json();
+  const d = await (await fetch('/spots/points')).json();
   spotLayer.clearLayers();
   if (!d.ok) return 0;
-  d.spots.forEach((s) => {
-    if (!s.center) return;                       // 좌표를 못 찾은 것은 찍지 않는다
-    const r = Math.max(4, Math.min(14, Math.sqrt(s.그루수) / 4));
-    L.circleMarker(s.center, {
-      radius: r, color: '#fff', weight: 1.5,
-      fillColor: SPOT_COLOR[s.구분] || '#2d6a4f', fillOpacity: .8,
+  d.points.forEach((s) => {
+    const r = s.c ? Math.max(3, Math.min(13, Math.sqrt(s.c) / 5)) : 3.5;
+    L.circleMarker(s.ll, {
+      renderer: spotCanvas, radius: r, color: '#fff', weight: 1,
+      fillColor: SPOT_COLOR[s.k] || '#2d6a4f', fillOpacity: .78,
     }).bindPopup(
-      `<div class="spot-pop"><b>${esc(s.노선명)}</b>` +
-      `${esc(s.시도)} ${esc(s.시군구)} · ${esc(s.구분)}<br>` +
-      `${esc(s.수종)} ${nf(s.그루수)}그루${s.연장_km ? ` · ${s.연장_km}km` : ''}` +
-      `${s.특징 ? `<br>${esc(s.특징)}` : ''}` +
-      `<div class="src">출처: ${esc(s.출처)}</div></div>`
+      `<div class="spot-pop"><b>${esc(s.n)}</b>${esc(s.g)} · ${esc(s.k)}<br>` +
+      `${esc(s.s)}<br>${s.c === null ? '그루수 미기재' : `${nf(s.c)}그루`}` +
+      `${s.km ? ` · ${s.km}km` : ''}` +
+      `<div class="src">출처: ${esc(s.src)}</div></div>`
     ).addTo(spotLayer);
   });
-  return d.spots.filter((s) => s.center).length;
+  spotsLoaded = true;
+  return d.count;
 }
 
 async function toggleSpots(on) {
   if (!on) { map.removeLayer(spotLayer); return; }
-  const n = await loadSpots();
+  const label = byId('spotslabel');
+  if (!spotsLoaded) { label.textContent = '불러오는 중…'; }
+  const n = spotsLoaded ? spotLayer.getLayers().length : await loadSpots();
   spotLayer.addTo(map);
-  byId('spotslabel').textContent = `명소 ${nf(n)}곳`;
+  label.textContent = `나무 ${nf(n)}곳`;
 }
 
 /* ── 지도 ─────────────────────────────────────────────────── */
@@ -103,7 +103,10 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).a
 const restLayer = L.layerGroup().addTo(map);    // 켜지지 않은 경로(회색 점선)
 const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로
 const treeLayer = L.layerGroup().addTo(map);
-const spotLayer = L.layerGroup();               // 공공자료 합본 명소(점) — 토글로 켠다
+const spotLayer = L.layerGroup();               // 공공자료 합본 나무(점) — 토글로 켠다
+// 전국 수천 개를 DOM 마커로 그리면 지도가 멈춘다. 캔버스에 한 번에 그린다.
+const spotCanvas = L.canvas({ padding: .3 });
+let spotsLoaded = false;                        // 한 번 받아 두고 다시 쓴다
 
 const isActive = (r) => state.active.some((a) => a.id === r.id);
 
@@ -415,8 +418,8 @@ byId('chatform').addEventListener('submit', (e) => {
   // 공공자료 합본이 준비돼 있을 때만 명소 토글을 보여 준다(DP24).
   const health = await (await fetch('/health')).json().catch(() => ({}));
   if (health?.spots?.ready) {
-    const box = byId('spotstoggle'); box.hidden = false;
-    byId('spotslabel').textContent = `명소 ${nf(health.spots.spots)}곳`;
+    byId('spotstoggle').hidden = false;
+    byId('spotslabel').textContent = `나무 ${nf(health.spots.spots)}곳`;
     byId('spotson').addEventListener('change', (e) => toggleSpots(e.target.checked));
   }
 
