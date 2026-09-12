@@ -363,6 +363,7 @@ def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) 
     if within.empty:
         return {"ok": False, "kind": "route", "theme": theme,
                 "origin": origin, "dest": dest,
+                "origin_district": _district_of(origin), "dest_district": _district_of(dest),
                 "reason": f"가는 길(±{width_m}m)에 {theme} 가로수가 거의 없음"}
     top = (within.groupby(["구", "노선"]).size()
            .sort_values(ascending=False).head(6).reset_index(name="그루수"))
