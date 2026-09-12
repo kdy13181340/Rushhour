@@ -55,17 +55,15 @@ const map = L.map('map', { zoomControl: false, attributionControl: false })
   .setView([37.5326, 127.024], 12);
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-/* 시안은 CARTO Positron(light_all)을 썼는데, 지금은 키 없이 부르면 타일마다
-   'API KEY REQUIRED' 워터마크가 찍혀 온다. 같은 무채색 계열이면서 키가 필요 없는
-   Esri Light Gray Canvas로 바꾼다 — 바탕과 글자가 레이어로 나뉘어 있어 둘 다 얹는다.
-   (밑그림이 연해야 경로 색이 산다는 시안의 의도는 그대로다.) */
-const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas';
-L.tileLayer(`${ESRI}/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
-  { maxZoom: 19, maxNativeZoom: 16 }).addTo(map);
-// 글자는 밑그림과 같은 tilePane에 둔다. 다른 pane에 두면 경로선 위로 올라와
-// 선을 끊어 놓는다 — 시안의 light_all은 글자가 타일에 박혀 있어 선이 늘 위였다.
-L.tileLayer(`${ESRI}/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`,
-  { maxZoom: 19, maxNativeZoom: 16 }).addTo(map);
+/* 밑그림 고르기 — 도보 앱이라 z17~19에서 골목·보도가 보여야 한다(DP21).
+   · 시안의 CARTO Positron(light_all): 키 없이 부르면 'API KEY REQUIRED' 워터마크.
+   · 그다음 쓰던 Esri Light Gray Canvas: 서울 상세 데이터가 없어 **z16부터**
+     'Map data not yet available' 회색 타일이 온다 — 확대하면 지도가 사라진다(실측).
+   · OSM 표준 타일: 한글 도로명·건물까지 z19로 나오고 키가 필요 없다.
+   색이 진해 경로 선을 덮으므로, 밝은 밑그림은 styles.css의 회색 필터로 만든다.
+   필터는 tilePane에만 걸리므로 경로 선·마커 색은 그대로다(시안 의도 유지).
+   ※ 대량 트래픽이 되면 OSM 타일 정책상 자체 타일 서버나 키 있는 제공자로 옮길 것. */
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
 const restLayer = L.layerGroup().addTo(map);    // 켜지지 않은 경로(회색 점선)
 const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로

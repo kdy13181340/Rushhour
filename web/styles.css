@@ -234,3 +234,7 @@ input{font:inherit}
 }
 .field button:disabled{background:var(--muted); color:var(--faint); cursor:default}
 .disclaimer{font-size:11px; color:var(--faint); text-align:center; margin:8px 0 0}
+
+/* 밑그림만 회색으로 눌러 경로 색이 살게 한다(DP21). tilePane에만 걸리므로
+   경로 선·나무 마커·라벨 색은 영향을 받지 않는다. OSM 표준 타일 기준 값. */
+.leaflet-tile-pane { filter: grayscale(1) brightness(1.06) contrast(0.82); }
