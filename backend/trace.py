@@ -8,12 +8,15 @@ TRACE_BACKEND=none           → 기록 안 함
 """
 
 import json
-import os
+import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TRACE_PATH = Path(os.environ.get("TRACE_PATH", ROOT / "results" / "rushhour_trace.jsonl"))
+sys.path.insert(0, str(ROOT / "app"))          # config 등 app/ 평면 import
+from config import get_settings                 # noqa: E402
+
+TRACE_PATH = Path(get_settings().trace_path)
 
 
 class JsonlTracer:
@@ -58,7 +61,7 @@ class LangfuseTracer(JsonlTracer):
 
 
 def make_tracer():
-    backend = os.environ.get("TRACE_BACKEND", "jsonl").strip().lower()
+    backend = get_settings().trace_backend.strip().lower()
     if backend == "none":
         return NullTracer()
     if backend == "langfuse":

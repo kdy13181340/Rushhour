@@ -1,7 +1,9 @@
 """도구·데이터 계층 — LLM 없이."""
 import pandas as pd
 
-from tools import _load, available_districts, check_coverage, find_theme_streets, match_district
+import tools
+from tools import (_load, _resolve_point, available_districts, check_coverage,
+                   find_theme_streets, match_district, route_theme_streets)
 
 
 def test_load_has_25_districts_and_no_agencies():
@@ -59,3 +61,41 @@ def test_match_district():
     assert match_district("강남구에서 봄에") == "강남구"
     assert match_district("서초 쪽 그늘길") == "서초구"
     assert match_district("부산 해운대") == ""
+
+
+def test_resolve_point_coord_and_district():
+    assert _resolve_point("37.5,127.1") == (37.5, 127.1)
+    pt = _resolve_point("강남구")
+    assert pt and 37.0 < pt[0] < 38.0 and 126.0 < pt[1] < 128.0
+    assert _resolve_point("") is None
+
+
+def test_resolve_point_landmark_without_key_is_graceful(monkeypatch):
+    """카카오 키 없으면 장소명은 None(예외 X) → route는 기존 '해석 못함' 폴백.
+
+    빈 문자열 env는 .env보다 우선하므로(pydantic-settings 우선순위) 로컬에 실제 .env가
+    있어도 이 테스트는 '키 없음' 상태를 확정할 수 있다.
+    """
+    monkeypatch.setenv("KAKAO_REST_API_KEY", "")
+    tools._geocode_kakao.cache_clear()
+    assert _resolve_point("올림픽공원") is None
+    r = route_theme_streets.invoke({"theme": "벚꽃", "origin": "올림픽공원", "dest": "롯데타워"})
+    assert r["ok"] is False and "해석 못함" in r["reason"]
+
+
+def test_resolve_point_landmark_geocoded(monkeypatch):
+    """키 있으면 장소명 → 카카오 좌표(서울 결과 우선). httpx mock으로 네트워크 없이 검증."""
+    monkeypatch.setenv("KAKAO_REST_API_KEY", "dummy")
+    tools._geocode_kakao.cache_clear()
+
+    class _Resp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"documents": [
+                {"place_name": "해운대", "x": "129.0", "y": "35.1", "address_name": "부산 해운대구"},
+                {"place_name": "올림픽공원", "x": "127.121", "y": "37.520", "address_name": "서울 송파구 방이동"},
+            ]}
+
+    monkeypatch.setattr(tools.httpx, "get", lambda *a, **k: _Resp())
+    assert _resolve_point("올림픽공원") == (37.52, 127.121)  # 부산 아닌 서울 채택
+    tools._geocode_kakao.cache_clear()

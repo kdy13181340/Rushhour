@@ -42,6 +42,10 @@ AGENT_CHANNEL=local /root/venvs/rushhour/bin/python app/graph.py  # 8080 있을 
 API로 돌리려면: `AGENT_CHANNEL=gemini GEMINI_API_KEY=... python graph.py`
 (또는 `AGENT_CHANNEL=openai OPENAI_API_KEY=...`).
 
+경로 질의의 출발/도착을 **장소명·랜드마크**('올림픽공원','롯데타워','강남역')로 주려면
+카카오 로컬 REST 키가 필요하다: `KAKAO_REST_API_KEY=...`. 없으면 자치구명·`lat,lon`만
+해석되고 장소명은 "좌표로 해석 못함"으로 떨어진다(`tools._geocode_kakao`, 서울 결과 우선).
+
 의존성(파드 재배포 시 복구): `uv pip install langchain-core langgraph langchain-openai pandas openpyxl`
 
 ## 검증된 것 (LLM 없이)

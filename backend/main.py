@@ -17,7 +17,6 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
 """
 
 import json
-import os
 import sqlite3
 import sys
 import time
@@ -33,6 +32,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))          # app/ 모듈은 평면 import(dev1 구조 유지)
 
+from config import get_settings                       # noqa: E402
 from graph import build_graph, MAX_HOPS, new_turn_input   # noqa: E402
 from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points                      # noqa: E402
@@ -43,7 +43,7 @@ from tools import available_districts, data_source, find_theme_streets   # noqa:
 from backend.trace import make_tracer                  # noqa: E402
 from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload  # noqa: E402
 
-CHECKPOINT_PATH = Path(os.environ.get("CHECKPOINT_DB", ROOT / "data" / "checkpoints.sqlite"))
+CHECKPOINT_PATH = Path(get_settings().checkpoint_db)
 STATE = {}
 
 
@@ -56,7 +56,7 @@ def _make_checkpointer():
 
 def _llm_reachable() -> dict:
     """8080(또는 AGENT_BASE_URL) 모델 서버가 살아 있는지 1초 안에 확인."""
-    channel = os.environ.get("AGENT_CHANNEL", "local").lower()
+    channel = get_settings().agent_channel.lower()
     if channel == "none":
         return {"channel": "none", "reachable": False, "model": None}
     if channel in ("gemini", "openai"):

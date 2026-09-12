@@ -13,19 +13,19 @@
 
 import functools
 import math
-import os
 import sys
 from pathlib import Path
 
+import httpx
 import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 
+from config import ROOT, get_settings
 from themes import THEMES
 
-ROOT = Path(__file__).resolve().parents[1]
-PARQUET_PATH = Path(os.environ.get("TREE_PARQUET", ROOT / "data" / "processed" / "seoul_trees.parquet"))
-CSV_PATH = Path(os.environ.get("TREE_CSV", ROOT / "data" / "seoul_tree_data.csv"))
+PARQUET_PATH = Path(get_settings().tree_parquet)   # import 시 1회(정적 경로)
+CSV_PATH = Path(get_settings().tree_csv)
 
 
 @functools.lru_cache(maxsize=1)
@@ -206,8 +206,49 @@ def district_centroid(gu: str):
     return (round(float(sub["위도"].mean()), 6), round(float(sub["경도"].mean()), 6))
 
 
+# 카카오 로컬 키워드검색 — 장소명/랜드마크 → 좌표. REST 키 없으면 건너뜀.
+KAKAO_LOCAL_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
+
+
+@functools.lru_cache(maxsize=512)
+def _geocode_kakao(query: str):
+    """장소명·랜드마크(예: '올림픽공원','롯데타워','강남역') → (위도, 경도).
+
+    카카오 로컬 키워드검색으로 해소한다. 서울 안 결과를 우선 채택(회랑이 데이터
+    범위 안에 들게). 키(KAKAO_REST_API_KEY) 없음·네트워크 실패·결과 없음이면 None —
+    예외를 던지지 않아 오프라인/테스트에서도 조용히 기존 폴백으로 빠진다.
+    """
+    key = get_settings().kakao_rest_api_key.strip()
+    query = (query or "").strip()
+    if not key or not query:
+        return None
+    try:
+        resp = httpx.get(
+            KAKAO_LOCAL_URL,
+            params={"query": query, "size": 15},
+            headers={"Authorization": f"KakaoAK {key}"},
+            timeout=4.0,
+        )
+        resp.raise_for_status()
+        docs = resp.json().get("documents", [])
+    except Exception as exc:  # noqa: BLE001 — 네트워크·스키마 실패는 None으로 폴백
+        print(f"  [geocode 폴백] 카카오 실패({type(exc).__name__}) query={query!r}")
+        return None
+    if not docs:
+        return None
+    # 서울 소재 결과 우선(없으면 최상위). address_name/road_address_name로 판별.
+    def _is_seoul(d: dict) -> bool:
+        addr = (d.get("address_name") or "") + (d.get("road_address_name") or "")
+        return addr.startswith("서울")
+    pick = next((d for d in docs if _is_seoul(d)), docs[0])
+    try:
+        return (round(float(pick["y"]), 6), round(float(pick["x"]), 6))  # y=위도, x=경도
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _resolve_point(s: str):
-    """'lat,lon' 또는 서울 자치구명 → (위도, 경도). 해석 불가면 None."""
+    """'lat,lon' · 서울 자치구명 · 장소명(카카오 지오코딩) → (위도, 경도). 해석 불가면 None."""
     s = (s or "").strip()
     if "," in s:
         try:
@@ -216,8 +257,10 @@ def _resolve_point(s: str):
         except ValueError:
             pass
     if s in available_districts():
-        return district_centroid(s)
-    return None
+        return district_centroid(s)          # 자치구는 데이터 centroid(오프라인·안정)
+    if not s:
+        return None
+    return _geocode_kakao(s)                  # 랜드마크·역명·건물명은 지오코딩으로 해소
 
 
 def _seg_dist_km(lat, lon, a, b):
@@ -243,7 +286,8 @@ def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) 
     아니라 두 지점을 잇는 직선 주변(회랑)에서 만나는 도로다.
 
     Args:
-        origin: 출발지. 서울 자치구명(예: '강남구') 또는 'lat,lon' 좌표.
+        origin: 출발지. 서울 자치구명(예: '강남구')·장소명/랜드마크(예: '올림픽공원',
+            '롯데타워', '강남역')·'lat,lon' 좌표. 장소명은 카카오 지오코딩으로 좌표 해소.
         dest: 목적지. 형식은 origin과 같다.
         theme: 은행회피·벚꽃·그늘·이팝·은행단풍·메타세쿼이아 중 하나.
         width_m: 회랑 반폭(m). 기본 500.
