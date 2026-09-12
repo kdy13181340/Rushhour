@@ -120,6 +120,10 @@ def adopt_results(results: list[tuple[str, dict]], state: dict) -> dict:
         if best.get("ok") or not prev.get("ok"):
             patch["hits"] = best
             patch["verdict"] = "match" if best.get("ok") else "no_data"
+            # 에이전트가 테마를 골라 해소했으면 state.theme에 반영 — resolver가 stale
+            # theme='unknown'으로 정상 결과를 거절하지 않도록(계절 기본 테마 경로).
+            if best.get("ok") and best.get("theme") and state.get("theme") in (None, "", "unknown"):
+                patch["theme"] = best["theme"]
     for name, res in results:
         if name == "search_places" and res.get("ok") and res.get("results"):
             hits3 = res["results"][:3]
