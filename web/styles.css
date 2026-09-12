@@ -235,6 +235,14 @@ input{font:inherit}
 .field button:disabled{background:var(--muted); color:var(--faint); cursor:default}
 .disclaimer{font-size:11px; color:var(--faint); text-align:center; margin:8px 0 0}
 
+/* 공공자료 합본 명소 토글 — 지도 우상단, 확대 버튼 아래(DP24) */
+.spotstoggle{position:absolute;right:12px;top:96px;z-index:600;display:flex;align-items:center;
+  gap:6px;background:#fff;border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:600;
+  color:#33413a;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer;user-select:none}
+.spotstoggle input{accent-color:#2d6a4f;cursor:pointer;margin:0}
+.spot-pop b{display:block;margin-bottom:3px}
+.spot-pop .src{color:#6b7671;font-size:11.5px}
+
 /* 밑그림 톤(DP21). 회색으로 완전히 눌렀더니 공원·물·지하철 같은 정보가 다 사라져 칙칙했다.
    채도를 절반쯤만 빼고 밝기를 올려 카카오·네이버 지도처럼 따뜻하고 연한 바탕으로 만든다 —
    공원의 초록, 한강의 파랑, 도로 위계는 남기고 경로 색(빨강·노랑·남색)이 그 위에서 살게.

@@ -13,6 +13,7 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
   POST /tools/find_theme_streets   LLM 없이 도구만 호출 (사이드바 '빠른 추천')
   POST /tools/search_places        벡터DB 의미검색 (동네·지명·구어체 → (구, 노선) 후보)  [RAG]
   POST /tools/plan_route           출발→도착 경로 3가지 (최단·테마 경유·회피)  [DP17]
+  GET  /spots                      테마길 명소(공원·하천·전국) — 공공자료 합본  [DP24]
   GET  /themes  · GET /districts   UI 셀렉트박스용 메타
   GET  /map/street_points          지도 마커 좌표 (map_api.street_points)
 """
@@ -39,6 +40,7 @@ from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points                      # noqa: E402
 from rag import rag_status, search_places              # noqa: E402
 from routing import osm_status, plan_route             # noqa: E402
+from spots import find_spots, spots_status             # noqa: E402
 from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_model   # noqa: E402
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
@@ -113,6 +115,7 @@ def health():
         "llm": llm,
         "rag": rag_status(),        # 벡터DB 인덱스 유무·임베딩 채널 일치 여부 (모델은 로드 안 함)
         "osm": osm_status(),        # 경로 탐색용 보행 도로망 산출물(scripts/04·05) 유무
+        "spots": spots_status(),    # 테마길 합본(scripts/07) — 공원·하천·전국 목록
         "embed": _embed_reachable(),  # 임베딩 서버(local=llama-server 등) 도달 여부 — 검색 불가 배지용
         # LLM이 없어도 지도는 나온다 — UI는 이 값으로 '채팅은 규칙 모드' 배지를 띄운다
         "chat_mode": "llm" if llm["reachable"] else "rule",
@@ -176,6 +179,14 @@ def tool_plan_route(q: RouteQuery):
                                         "ok": res.get("ok"),
                                         "kinds": [r["kind"] for r in res.get("routes", [])]})
     return res
+
+
+@app.get("/spots")
+def spots(theme: str = "", sido: str = "", sigungu: str = "", kind: str = "",
+          k: int = 30, seoul_only: bool = False):
+    """테마길 명소 목록. 좌표는 노선당 한 점이라 화면에는 점으로 찍는다(도로 형상 아님)."""
+    return find_spots(theme=theme, sido=sido, sigungu=sigungu, kind=kind,
+                      k=k, seoul_only=seoul_only)
 
 
 @app.get("/map/street_points")

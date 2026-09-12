@@ -1,22 +1,23 @@
-"""서울 테마길 데이터셋 — 공공 자료 셋을 합쳐 우리 것으로.  [DECISIONS DP24]
+"""테마길 데이터셋 — 공공자료 넷을 합쳐 우리 것으로.  [DECISIONS DP24]
 
 왜 필요했나: 가로수 대장(`seoul_tree_data.csv`)은 **도로변에 심은 나무**만 센다. 그래서 석촌호수
 둘레길·양재천·안양천처럼 사람들이 실제로 벚꽃 보러 가는 **공원·하천 산책로**가 통째로 빠져 있었다.
 
-합치는 것 — 셋 다 공공데이터이고, 좌표·수치를 지어내지 않는다:
-  A. 가로수 대장 정제본              (구, 노선)별 수종 집계 · 좌표 있음 · 도로변만
-  B. 서울 단풍길 110선               공원·하천변·등산로 포함 · 그루수·연장·설명 · **좌표 없음**
-  C. 전국 가로수길 정보 표준데이터(서울만)  노선별 **시작·종료 좌표** · 수종·수량·길이·소개
+합치는 것 — 넷 다 공공데이터이고, 좌표·수치를 지어내지 않는다:
+  A. 서울 가로수 대장(정제본)          (구, 노선)별 수종 집계 · 나무마다 좌표 · 도로변만 · 서울
+  B. 서울 단풍길 110선                **공원·하천변·등산로** · 그루수·연장·선정사유 · 좌표 없음
+  C. 전국 가로수길 정보 표준데이터        노선별 **시작·종료 좌표** · 수종·수량·길이·소개 · **전국 16개 시도**
+  D. 서울시 가로수 / 공원·사유지 수목     수목 단위 상세(수고·흉고) · 좌표 · **중구만**
 
-같은 길이 자료마다 따로 조사돼 있고 그루수도 다르다(개포로: 대장 1,004 / 표준 1,169). 그래서
-합치되 **더하지는 않는다** — 같은 (자치구, 노선명)에는 `대표=True` 한 행을 두고, 나머지 행은
-`중복출처`에 어느 자료에도 있는지 적어 남긴다. 총계를 낼 때는 대표 행만 센다.
+**지역 범위 주의**: C·D 덕분에 목록과 지도 표시는 전국이 되지만, **경로 찾기는 서울만** 된다 —
+보행 도로망(scripts/04)을 서울 bbox로만 받았기 때문이다. `지역구분` 컬럼으로 갈라 둔다.
 
-B는 좌표가 없어 노선명을 C·가로수 데이터·OSM 이름에 맞춰 본다. 못 맞춘 것은 `매칭=''`으로 둔다 —
-지도에는 못 올려도 "어디에 몇 그루"는 답할 수 있고, 무엇보다 **지어낸 좌표를 넣지 않는다**.
+**합치되 더하지 않는다**: 같은 길이 자료마다 따로 조사돼 있고 그루수도 다르다(개포로: 대장
+1,004 / 표준 1,169). 같은 (시군구, 노선명)에는 `대표=True` 한 행만 두고 나머지는 `중복출처`로
+표시한다. 총계는 대표 행만 센다 — 단순 합산은 부풀린 숫자다.
 
-산출물: data/processed/seoul_theme_spots.parquet (+ 같은 내용 CSV, 사람 확인용)
-실행:  python scripts/07_build_theme_spots.py [--check] [--theme 벚꽃]
+산출물: data/processed/theme_spots.parquet (+ 같은 내용 CSV, 사람 확인용)
+실행:  python scripts/07_build_theme_spots.py [--check] [--theme 벚꽃] [--seoul-only]
 """
 
 import argparse
@@ -31,19 +32,29 @@ if (sys.stdout.encoding or "").lower().replace("-", "") != "utf8":
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
+DATA = ROOT / "data"
 
-TREES = ROOT / "data" / "processed" / "seoul_trees.parquet"
-MAPLE = ROOT / "data" / "서울 단풍길 110선.csv"
-NATION = ROOT / "data" / "전국가로수길정보표준데이터.csv"
-OUT = ROOT / "data" / "processed" / "seoul_theme_spots.parquet"
-OUT_CSV = ROOT / "data" / "processed" / "seoul_theme_spots.csv"
+TREES = DATA / "processed" / "seoul_trees.parquet"
+MAPLE = DATA / "서울 단풍길 110선.csv"
+NATION = DATA / "전국가로수길정보표준데이터.csv"
+JUNGGU_ST = DATA / "서울시 가로수 위치정보 (좌표계_ WGS1984).csv"
+JUNGGU_PARK = DATA / "서울시 공원 및 사유지수목 위치정보 (좌표계_ WGS1984).csv"
+OUT = DATA / "processed" / "theme_spots.parquet"
+OUT_CSV = DATA / "processed" / "theme_spots.csv"
 
-SRC = {"tree": "서울시 가로수 위치정보(가로수 대장)",
-       "maple": "서울 단풍길 110선",
-       "nation": "전국 가로수길 정보 표준데이터(서울)"}
+SRC = {
+    "tree": "서울시 가로수 위치정보(가로수 대장)",
+    "maple": "서울 단풍길 110선",
+    "nation": "전국 가로수길 정보 표준데이터",
+    "junggu_st": "서울시 가로수 위치정보 상세(중구)",
+    "junggu_park": "서울시 공원 및 사유지수목(중구)",
+}
+# 같은 길이 여러 자료에 있을 때 어느 것을 대표로 둘지 — '그 자료만 가진 것'이 큰 순서
+SRC_RANK = {SRC["maple"]: 0, SRC["junggu_park"]: 1, SRC["nation"]: 2,
+            SRC["junggu_st"]: 3, SRC["tree"]: 4}
 
-# 수종 문구 → 우리 테마 키. themes.py의 수종 목록이 1차 근거이고, 자료마다 표기가 달라
-# 낱말로도 잡는다('왕벚나무+은행나무', '느티나무, 단풍나무 등' 같은 자유 문자열이 온다).
+# 수종 문구 → 우리 테마 키. 자료마다 표기가 달라 낱말로 잡는다
+# ('왕벚나무+은행나무', '느티나무, 단풍나무 등' 같은 자유 문자열이 온다).
 THEME_WORDS = {
     "벚꽃": ("벚나무", "왕벚", "양벚", "벚꽃"),
     "은행단풍": ("은행",),
@@ -53,14 +64,24 @@ THEME_WORDS = {
     "그늘": ("느티", "버즘", "플라타너스", "회화나무", "칠엽수", "백합나무"),
 }
 MIN_TREES = 10          # 이보다 적으면 '길'이라 부르기 어렵다
+COLS = ["출처", "지역구분", "시도", "시군구", "구분", "노선명", "구간", "수종", "테마",
+        "그루수", "연장_km", "특징", "위도", "경도", "시작위도", "시작경도", "종료위도", "종료경도", "매칭"]
 
 
-def themes_of(species_text: str) -> list[str]:
-    t = str(species_text)
+def themes_of(text) -> list[str]:
+    t = str(text)
     return [k for k, words in THEME_WORDS.items() if any(w in t for w in words)]
 
 
-# ── A. 가로수 대장 ───────────────────────────────────────────────────────────
+def _frame(rows: dict) -> pd.DataFrame:
+    df = pd.DataFrame(rows)
+    for c in COLS:
+        if c not in df.columns:
+            df[c] = pd.NA
+    return df[COLS]
+
+
+# ── A. 서울 가로수 대장 ──────────────────────────────────────────────────────
 def from_trees() -> pd.DataFrame:
     df = pd.read_parquet(TREES).dropna(subset=["노선"])
     g = df.groupby(["구", "노선"]).agg(
@@ -70,46 +91,97 @@ def from_trees() -> pd.DataFrame:
     g = g[g["그루수"] >= MIN_TREES]
     g["테마"] = g["수종"].map(lambda s: ",".join(themes_of(s)))
     g = g[g["테마"] != ""]
-    return pd.DataFrame({
-        "출처": SRC["tree"], "자치구": g["구"], "구분": "가로", "노선명": g["노선"], "구간": "",
-        "수종": g["수종"], "테마": g["테마"], "그루수": g["그루수"].astype(int), "연장_km": pd.NA,
-        "특징": "", "위도": g["위도"].round(6), "경도": g["경도"].round(6),
-        "매칭": "좌표 직접(가로수 대장)",
+    return _frame({
+        "출처": SRC["tree"], "지역구분": "서울", "시도": "서울특별시", "시군구": g["구"],
+        "구분": "가로", "노선명": g["노선"], "구간": "", "수종": g["수종"], "테마": g["테마"],
+        "그루수": g["그루수"].astype(int), "특징": "",
+        "위도": g["위도"].round(6), "경도": g["경도"].round(6), "매칭": "좌표 직접(가로수 대장)",
     })
 
 
-# ── C. 전국 표준데이터에서 서울만 ────────────────────────────────────────────
-def from_nation() -> pd.DataFrame:
+# ── C. 전국 표준데이터 ───────────────────────────────────────────────────────
+def from_nation(seoul_only: bool = False) -> pd.DataFrame:
     df = pd.read_csv(NATION, encoding="cp949", low_memory=False)
-    # 좌표 bbox로 거르면 성남·구리·하남이 섞인다. 제공기관이 '서울특별시'인 것만 쓴다.
-    s = df[df["제공기관명"].astype(str).str.startswith("서울특별시")].copy()
+    org = df["제공기관명"].astype(str)
+    if seoul_only:
+        df = df[org.str.startswith("서울특별시")].copy()
+        org = df["제공기관명"].astype(str)
     for c in ("가로수길시작위도", "가로수길시작경도", "가로수길종료위도", "가로수길종료경도",
               "가로수수량", "가로수길길이"):
-        s[c] = pd.to_numeric(s[c], errors="coerce")
-    s = s.dropna(subset=["가로수길시작위도", "가로수길시작경도"])
-    s["테마"] = s["가로수종류"].map(lambda x: ",".join(themes_of(x)))
-    s = s[(s["테마"] != "") & (s["가로수수량"].fillna(0) >= MIN_TREES)]
-    gu = s["제공기관명"].astype(str).str.replace("서울특별시 ", "", regex=False)
-    # 중심좌표 = 시작·종료의 중간(종료가 없으면 시작)
-    lat = s[["가로수길시작위도", "가로수길종료위도"]].mean(axis=1)
-    lon = s[["가로수길시작경도", "가로수길종료경도"]].mean(axis=1)
-    return pd.DataFrame({
-        "출처": SRC["nation"], "자치구": gu, "구분": "가로",
-        "노선명": s["가로수길명"].astype(str).str.strip(),
-        "구간": s["도로구간"].fillna("").astype(str),
-        "수종": s["가로수종류"].astype(str), "테마": s["테마"],
-        "그루수": s["가로수수량"].fillna(0).astype(int),
-        "연장_km": s["가로수길길이"], "특징": s["가로수길소개"].fillna("").astype(str),
-        "위도": lat.round(6), "경도": lon.round(6), "매칭": "좌표 직접(표준데이터)",
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    # 좌표가 한반도 밖이면 버린다(입력 오류 5건 관찰)
+    ok = (df["가로수길시작위도"].between(33, 39) & df["가로수길시작경도"].between(124, 132))
+    df = df[ok].copy()
+    df["테마"] = df["가로수종류"].map(lambda x: ",".join(themes_of(x)))
+    df = df[(df["테마"] != "") & (df["가로수수량"].fillna(0) >= MIN_TREES)]
+    parts = df["제공기관명"].astype(str).str.split(n=1)
+    sido = parts.str[0]
+    sigungu = parts.str[1].fillna(sido)
+    return _frame({
+        "출처": SRC["nation"], "지역구분": sido.map(lambda s: "서울" if s == "서울특별시" else "전국"),
+        "시도": sido, "시군구": sigungu, "구분": "가로",
+        "노선명": df["가로수길명"].astype(str).str.strip(),
+        "구간": df["도로구간"].fillna("").astype(str),
+        "수종": df["가로수종류"].astype(str), "테마": df["테마"],
+        "그루수": df["가로수수량"].fillna(0).astype(int), "연장_km": df["가로수길길이"],
+        "특징": df["가로수길소개"].fillna("").astype(str),
+        "위도": df[["가로수길시작위도", "가로수길종료위도"]].mean(axis=1).round(6),
+        "경도": df[["가로수길시작경도", "가로수길종료경도"]].mean(axis=1).round(6),
+        "시작위도": df["가로수길시작위도"], "시작경도": df["가로수길시작경도"],
+        "종료위도": df["가로수길종료위도"], "종료경도": df["가로수길종료경도"],
+        "매칭": "좌표 직접(표준데이터 시작·종료)",
     })
+
+
+# ── D. 중구 상세 두 종 ───────────────────────────────────────────────────────
+def from_junggu() -> pd.DataFrame:
+    out = []
+    st = pd.read_csv(JUNGGU_ST, encoding="cp949", low_memory=False)
+    for c in ("경도", "위도"):          # 문자열로 읽히는 행이 섞여 있다
+        st[c] = pd.to_numeric(st[c], errors="coerce")
+    st = st.dropna(subset=["가로명", "경도", "위도"])
+    g = st.groupby(["구명", "가로명"]).agg(
+        그루수=("수목명", "size"), 위도=("위도", "mean"), 경도=("경도", "mean"),
+        수종=("수목명", lambda s: ", ".join(s.value_counts().head(3).index)),
+    ).reset_index()
+    g = g[g["그루수"] >= MIN_TREES]
+    g["테마"] = g["수종"].map(lambda s: ",".join(themes_of(s)))
+    g = g[g["테마"] != ""]
+    out.append(_frame({
+        "출처": SRC["junggu_st"], "지역구분": "서울", "시도": "서울특별시", "시군구": g["구명"],
+        "구분": "가로", "노선명": g["가로명"], "구간": "", "수종": g["수종"], "테마": g["테마"],
+        "그루수": g["그루수"].astype(int), "특징": "",
+        "위도": g["위도"].round(6), "경도": g["경도"].round(6), "매칭": "좌표 직접(중구 상세)",
+    }))
+
+    pk = pd.read_csv(JUNGGU_PARK, encoding="cp949", low_memory=False)
+    for c in ("경도", "위도"):
+        pk[c] = pd.to_numeric(pk[c], errors="coerce")
+    pk["위치"] = pk["위치"].astype(str).str.strip()
+    pk = pk[(pk["위치"] != "") & pk["경도"].notna() & pk["위도"].notna()]
+    g = pk.groupby(["구명", "위치"]).agg(
+        그루수=("수목명", "size"), 위도=("위도", "mean"), 경도=("경도", "mean"),
+        수종=("수목명", lambda s: ", ".join(s.value_counts().head(3).index)),
+        동=("동명", lambda s: s.value_counts().index[0] if len(s) else ""),
+    ).reset_index()
+    g = g[g["그루수"] >= MIN_TREES]
+    g["테마"] = g["수종"].map(lambda s: ",".join(themes_of(s)))
+    g = g[g["테마"] != ""]
+    out.append(_frame({
+        "출처": SRC["junggu_park"], "지역구분": "서울", "시도": "서울특별시", "시군구": g["구명"],
+        "구분": "공원", "노선명": g["위치"], "구간": g["동"], "수종": g["수종"], "테마": g["테마"],
+        "그루수": g["그루수"].astype(int), "특징": "",
+        "위도": g["위도"].round(6), "경도": g["경도"].round(6), "매칭": "좌표 직접(중구 공원·사유지)",
+    }))
+    return pd.concat(out, ignore_index=True)
 
 
 # ── B. 단풍길 110선 — 좌표가 없어 이름을 맞춰 본다 ───────────────────────────
-def _strip(name: str) -> str:
+def _strip(name) -> str:
     return re.sub(r"\(.*?\)", "", str(name)).strip()
 
 
-def _stems(name: str) -> list[str]:
+def _stems(name) -> list[str]:
     base = _strip(name)
     out = [base]
     head = base.split()[0] if base.split() else base
@@ -139,7 +211,7 @@ def _match(cand: str, pool: set[str]) -> str:
     return ""
 
 
-def from_maple(pools: list[tuple[str, set[str], dict]]) -> pd.DataFrame:
+def from_maple(pools) -> pd.DataFrame:
     mp = pd.read_csv(MAPLE, encoding="cp949")
     rows = []
     for _, r in mp.iterrows():
@@ -156,7 +228,7 @@ def from_maple(pools: list[tuple[str, set[str], dict]]) -> pd.DataFrame:
                     continue
                 info = coords.get(hit)
                 if info and gus and info.get("gus") and not (gus & info["gus"]):
-                    continue                         # 자치구가 어긋나면 동명이인이다
+                    continue                      # 자치구가 어긋나면 동명이인이다
                 matched, how = hit, label
                 if info:
                     lat, lon = info.get("lat", pd.NA), info.get("lon", pd.NA)
@@ -165,35 +237,57 @@ def from_maple(pools: list[tuple[str, set[str], dict]]) -> pd.DataFrame:
                 break
         seg = re.search(r"\((.*?)\)", raw)
         rows.append({
-            "출처": SRC["maple"], "자치구": str(r["자치구(사업소)"]), "구분": str(r["구분"]),
+            "출처": SRC["maple"], "지역구분": "서울", "시도": "서울특별시",
+            "시군구": str(r["자치구(사업소)"]), "구분": str(r["구분"]),
             "노선명": _strip(raw), "구간": seg.group(1) if seg else "",
-            "수종": str(r["수종"]), "테마": ",".join(themes),
-            "그루수": int(r["수량(그루)"]),
+            "수종": str(r["수종"]), "테마": ",".join(themes), "그루수": int(r["수량(그루)"]),
             "연장_km": float(r["연장(km)"]) if pd.notna(r["연장(km)"]) else pd.NA,
-            "특징": str(r["특징(선정사유)"]),
-            "위도": lat, "경도": lon,
+            "특징": str(r["특징(선정사유)"]), "위도": lat, "경도": lon,
             "매칭": f"이름 매칭({how}:{matched})" if matched else "",
         })
-    return pd.DataFrame(rows)
+    return _frame(rows)
 
 
-# 같은 길이 자료마다 따로 조사돼 있다. 그루수도 다르다(개포로: 대장 1,004 / 표준 1,169).
-# 단순 합산하면 중복이므로, 같은 (자치구, 노선명)에는 대표 행 하나를 정하고 나머지는 표시만 한다.
-# 우선순위는 '그 자료만 가진 것'이 큰 순서다 — 단풍길(공원·하천은 여기에만) > 표준(연장·소개) > 대장.
-SRC_RANK = {SRC["maple"]: 0, SRC["nation"]: 1, SRC["tree"]: 2}
+def fix_length(df: pd.DataFrame) -> pd.DataFrame:
+    """연장(km)의 단위 오류를 그 행 자신의 좌표로 검산해 바로잡는다.
+
+    여러 지자체가 미터로 적어 놨다(부평구 길주로 3,400 = 3.4km). 단일 도로 72,400km 같은 값이 남으면
+    "10km 코스" 같은 답이 거짓이 된다. 시작~종료 직선거리와 견줘 1000배 어긋나면 미터로 보고 나눈다 —
+    지어내는 게 아니라 **그 행이 이미 가진 좌표로 검산**하는 것이다. 판별 못 하면 비운다.
+    """
+    import numpy as np
+    df = df.copy()
+    L = pd.to_numeric(df["연장_km"], errors="coerce")
+    lat1, lon1 = pd.to_numeric(df["시작위도"], errors="coerce"), pd.to_numeric(df["시작경도"], errors="coerce")
+    lat2, lon2 = pd.to_numeric(df["종료위도"], errors="coerce"), pd.to_numeric(df["종료경도"], errors="coerce")
+    straight = np.hypot((lat1 - lat2) * 111.32, (lon1 - lon2) * 88.8)      # km, 서울~부산 위도대 근사
+    ratio = L / straight.replace(0, np.nan)
+    note = pd.Series("", index=df.index, dtype=object)
+    # 직선거리의 10배가 넘는데 1000으로 나누면 0.5~20배로 들어오면 미터 표기다
+    as_m = L / 1000.0
+    m_ok = (ratio > 10) & ((as_m / straight.replace(0, np.nan)).between(0.5, 20))
+    L = L.mask(m_ok, as_m)
+    note = note.mask(m_ok, "m→km 보정")
+    # 그래도 말이 안 되는 값은 비운다(직선거리의 20배 초과, 또는 좌표가 없는데 200km 초과)
+    bad = ((ratio > 10) & ~m_ok) | (straight.isna() & (L > 200)) | (L > 500)
+    L = L.mask(bad)
+    note = note.mask(bad, "값 이상 — 비움")
+    df["연장_km"] = L.round(3)
+    df["연장보정"] = note
+    return df
 
 
 def mark_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    key = list(zip(df["자치구"].astype(str), df["노선명"].astype(str)))
+    key = list(zip(df["시군구"].astype(str), df["노선명"].astype(str)))
     df["_key"] = key
-    others = {}
+    seen = {}
     for k, src in zip(key, df["출처"]):
-        others.setdefault(k, set()).add(src)
-    df["중복출처"] = [",".join(sorted(others[k] - {src})) for k, src in zip(key, df["출처"])]
+        seen.setdefault(k, set()).add(src)
+    df["중복출처"] = [",".join(sorted(seen[k] - {src})) for k, src in zip(key, df["출처"])]
     df["_rank"] = df["출처"].map(SRC_RANK).fillna(9)
-    first = df.sort_values("_rank").drop_duplicates("_key").index
-    df["대표"] = df.index.isin(first)
+    keep = df.sort_values("_rank").drop_duplicates("_key").index
+    df["대표"] = df.index.isin(keep)
     return df.drop(columns=["_key", "_rank"])
 
 
@@ -201,67 +295,69 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="저장하지 않고 진단만")
     ap.add_argument("--theme", help="이 테마만 요약해 보기")
+    ap.add_argument("--seoul-only", action="store_true", help="표준데이터도 서울만")
     args = ap.parse_args()
 
-    a, c = from_trees(), from_nation()
+    a, c, d = from_trees(), from_nation(args.seoul_only), from_junggu()
 
-    # 이름 → 좌표·자치구 사전. 표준데이터를 먼저 본다(공식 노선명 + 좌표가 함께 있다).
+    # 이름 → 좌표·자치구 사전. 표준데이터(공식 노선명+좌표)를 먼저 본다.
     pools = []
-    for label, df in (("표준데이터", c), ("가로수 대장", a)):
+    for label, df in (("표준데이터", c), ("중구 상세", d), ("가로수 대장", a)):
         coords, pool = {}, set()
         for _, r in df.iterrows():
             nm = str(r["노선명"])
             pool.add(nm)
-            d = coords.setdefault(nm, {"gus": set(), "lat": r["위도"], "lon": r["경도"]})
-            d["gus"].add(str(r["자치구"]))
+            info = coords.setdefault(nm, {"gus": set(), "lat": r["위도"], "lon": r["경도"]})
+            info["gus"].add(str(r["시군구"]))
         pools.append((label, pool, coords))
     try:
         import numpy as np
         import routing as R
         g = R._graph()
-        names = {str(x) for x in np.unique(g["name"]) if str(x) not in ("", "nan")}
-        pools.append(("OSM", names, {}))
+        pools.append(("OSM", {str(x) for x in np.unique(g["name"]) if str(x) not in ("", "nan")}, {}))
     except Exception as exc:  # noqa: BLE001 — 도로망이 없어도 나머지로 만든다
         print(f"(도로망 없음: {type(exc).__name__} — OSM 이름 매칭은 건너뛴다)")
 
     b = from_maple(pools)
-    out = pd.concat([c, b, a], ignore_index=True)
-    out = mark_duplicates(out)
+    out = mark_duplicates(fix_length(pd.concat([c, b, d, a], ignore_index=True)))
 
-    print(f"A 가로수 대장      {len(a):5,}개 노선 · {a['그루수'].sum():8,}그루 (좌표 있음)")
-    print(f"C 표준데이터(서울)  {len(c):5,}개 노선 · {c['그루수'].sum():8,}그루 (좌표 있음)")
-    print(f"B 단풍길 110선     {len(b):5,}개 노선 · {b['그루수'].sum():8,}그루 · "
-          f"좌표 얻음 {int(b['위도'].notna().sum())}/{len(b)} · 구분 {b['구분'].value_counts().to_dict()}")
-    dup = int((out["중복출처"] != "").sum())
+    print(f"A 서울 가로수 대장   {len(a):6,}개 · {a['그루수'].sum():9,}그루 (좌표 있음)")
+    print(f"C 전국 표준데이터    {len(c):6,}개 · {c['그루수'].sum():9,}그루 · "
+          f"시도 {c['시도'].nunique()}곳 (좌표 있음)")
+    print(f"D 중구 상세 2종     {len(d):6,}개 · {d['그루수'].sum():9,}그루 (좌표 있음)")
+    print(f"B 단풍길 110선     {len(b):6,}개 · {b['그루수'].sum():9,}그루 · "
+          f"좌표 얻음 {int(b['위도'].notna().sum())}/{len(b)} · {b['구분'].value_counts().to_dict()}")
     rep = out[out["대표"]]
-    print(f"합계 {len(out):,}행 · 좌표 있는 행 {int(out['위도'].notna().sum()):,} · "
-          f"다른 자료와 같은 길 {dup:,}행")
-    print(f"대표 행(중복 제거) {len(rep):,}개 노선 — 그루수를 셀 때는 이것만 쓴다")
+    print(f"\n합계 {len(out):,}행 · 좌표 있는 행 {int(out['위도'].notna().sum()):,} · "
+          f"겹치는 행 {int((out['중복출처'] != '').sum()):,}")
+    print(f"대표 행(중복 제거) {len(rep):,}개 — 그루수는 이것만 센다")
+    fixed = int((out["연장보정"] == "m→km 보정").sum())
+    blank = int((out["연장보정"] == "값 이상 — 비움").sum())
+    print(f"연장 단위 보정 {fixed:,}행(미터로 적힌 것) · 판별 못 해 비운 것 {blank:,}행")
+    print(f"  서울 {int((rep['지역구분'] == '서울').sum()):,}개 · 그 외 전국 "
+          f"{int((rep['지역구분'] == '전국').sum()):,}개")
     print()
-    print(f"{'테마':10s} {'대표 노선':>9s} {'그루수(대표만)':>14s} {'전체 행':>8s}")
-    for t in ("벚꽃", "은행단풍", "그늘", "이팝", "메타세쿼이아"):
-        sub = out[out["테마"].str.contains(t, na=False)]
-        r = sub[sub["대표"]]
-        print(f"  {t:8s} {len(r):7,}개 {r['그루수'].sum():12,}그루 {len(sub):7,}행")
+    print(f"{'테마':12s} {'대표':>7s} {'그루수':>12s} {'서울':>7s} {'전국':>7s}")
+    for t in THEME_WORDS:
+        r = rep[rep["테마"].str.contains(t, na=False)]
+        print(f"  {t:10s} {len(r):6,} {r['그루수'].sum():11,} "
+              f"{int((r['지역구분'] == '서울').sum()):6,} {int((r['지역구분'] == '전국').sum()):6,}")
     print()
-    print("가로수 대장에 없던 공원·하천·등산로(단풍길 자료가 더해 주는 것) 상위:")
-    extra = b[b["구분"] != "가로"].sort_values("그루수", ascending=False)
-    for _, r in extra.head(8).iterrows():
-        print(f"  {r['자치구']:14s} {r['구분']:4s} {r['노선명'][:20]:20s} {r['그루수']:5,}그루 "
-              f"· {r['매칭'] or '좌표 못 찾음'}")
+    print("시도별 대표 노선 수:")
+    for k, v in rep["시도"].value_counts().items():
+        print(f"  {k:14s} {v:5,}")
 
     if args.theme:
-        sub = out[out["테마"].str.contains(args.theme, na=False)].sort_values("그루수", ascending=False)
-        print(f"\n=== {args.theme} 상위 12 ===")
-        print(sub[["출처", "자치구", "구분", "노선명", "그루수", "연장_km"]].head(12).to_string(index=False))
+        sub = rep[rep["테마"].str.contains(args.theme, na=False)].sort_values("그루수", ascending=False)
+        print(f"\n=== {args.theme} 전국 상위 12 ===")
+        print(sub[["시도", "시군구", "구분", "노선명", "그루수", "연장_km"]].head(12).to_string(index=False))
 
     if args.check:
         return
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(OUT, index=False)
     out.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
-    print(f"\n저장: {OUT}  ({len(out):,}행)")
-    print(f"      {OUT_CSV}")
+    print(f"\n저장: {OUT}  ({len(out):,}행)\n      {OUT_CSV}")
 
 
 if __name__ == "__main__":

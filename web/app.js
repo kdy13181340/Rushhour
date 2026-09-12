@@ -50,6 +50,41 @@ const nf = (n) => Number(n).toLocaleString('ko-KR');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/* ── 공공자료 합본 명소(DP24) ────────────────────────────────
+   가로수 대장 밖의 공원·하천·등산로와 서울 밖 노선까지 담은 목록이다.
+   좌표가 노선당 한 점(또는 시작·종료 두 점)뿐이라 **선이 아니라 점**으로 찍는다 —
+   두 점을 이어 선을 그리면 실제 도로를 따라간 경로처럼 보여 거짓이 된다. */
+const SPOT_COLOR = { 가로: '#2d6a4f', 공원: '#40916c', 하천변: '#1565c0', 등산로: '#8a6d3b' };
+async function loadSpots() {
+  const theme = state.active[0] ? state.active[0].key : '';
+  const url = `/spots?k=300${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
+  const d = await (await fetch(url)).json();
+  spotLayer.clearLayers();
+  if (!d.ok) return 0;
+  d.spots.forEach((s) => {
+    if (!s.center) return;                       // 좌표를 못 찾은 것은 찍지 않는다
+    const r = Math.max(4, Math.min(14, Math.sqrt(s.그루수) / 4));
+    L.circleMarker(s.center, {
+      radius: r, color: '#fff', weight: 1.5,
+      fillColor: SPOT_COLOR[s.구분] || '#2d6a4f', fillOpacity: .8,
+    }).bindPopup(
+      `<div class="spot-pop"><b>${esc(s.노선명)}</b>` +
+      `${esc(s.시도)} ${esc(s.시군구)} · ${esc(s.구분)}<br>` +
+      `${esc(s.수종)} ${nf(s.그루수)}그루${s.연장_km ? ` · ${s.연장_km}km` : ''}` +
+      `${s.특징 ? `<br>${esc(s.특징)}` : ''}` +
+      `<div class="src">출처: ${esc(s.출처)}</div></div>`
+    ).addTo(spotLayer);
+  });
+  return d.spots.filter((s) => s.center).length;
+}
+
+async function toggleSpots(on) {
+  if (!on) { map.removeLayer(spotLayer); return; }
+  const n = await loadSpots();
+  spotLayer.addTo(map);
+  byId('spotslabel').textContent = `명소 ${nf(n)}곳`;
+}
+
 /* ── 지도 ─────────────────────────────────────────────────── */
 const map = L.map('map', { zoomControl: false, attributionControl: false })
   .setView([37.5326, 127.024], 12);
@@ -68,6 +103,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).a
 const restLayer = L.layerGroup().addTo(map);    // 켜지지 않은 경로(회색 점선)
 const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로
 const treeLayer = L.layerGroup().addTo(map);
+const spotLayer = L.layerGroup();               // 공공자료 합본 명소(점) — 토글로 켠다
 
 const isActive = (r) => state.active.some((a) => a.id === r.id);
 
@@ -375,6 +411,14 @@ byId('chatform').addEventListener('submit', (e) => {
   renderSeasons(); renderList(); renderChips(); applySeason();
   drawLines();
   byId('boot').hidden = true;
+
+  // 공공자료 합본이 준비돼 있을 때만 명소 토글을 보여 준다(DP24).
+  const health = await (await fetch('/health')).json().catch(() => ({}));
+  if (health?.spots?.ready) {
+    const box = byId('spotstoggle'); box.hidden = false;
+    byId('spotslabel').textContent = `명소 ${nf(health.spots.spots)}곳`;
+    byId('spotson').addEventListener('change', (e) => toggleSpots(e.target.checked));
+  }
 
   // 시안과 같이 경로를 하나도 켜지 않은 상태에서 인사말로 시작한다.
   bubble('assistant', WELCOME);

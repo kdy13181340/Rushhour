@@ -21,7 +21,7 @@ scripts/03_eval_search_places.py  검색 품질 hit@k·MRR                      
 scripts/04_fetch_osm.py        서울 보행 도로망(OSM) 1회 내려받기 → data/osm/       — BE
 scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별 테마 점수         — BE
 scripts/06_eval_routes.py      경로 가중치 검증(약속을 지키는지) — data/eval/route_pairs  — BE
-scripts/07_build_theme_spots.py 공공자료 3종 → 테마길 합본(공원·하천 산책로 포함)        — BE
+scripts/07_build_theme_spots.py 공공자료 4종 → 테마길 합본(공원·하천·전국)              — BE
 app/
   themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A
@@ -30,6 +30,7 @@ app/
   embeddings.py    임베딩 채널(local 8082 / openai / gemini / st / hash)  — BE
   rag.py           Chroma 색인 + search_places(@tool) 의미검색          — BE
   routing.py       plan_route(@tool) 경로 3가지 — 최단·테마 경유·회피     — BE
+  spots.py         find_theme_spots(@tool) 테마길 명소(공원·하천·전국)      — BE
   graph.py         langgraph supervisor 그래프(season·intake·researcher·light·resolver) — B
   app_streamlit.py 지도(pydeck)+채팅 UI — FastAPI 클라이언트          — C
 backend/
@@ -102,6 +103,10 @@ AGENT_CHANNEL=none $PY app/graph.py
 - `TRACE_BACKEND=jsonl|langfuse|none`: 궤적은 기본 `results/rushhour_trace.jsonl`.
 - `/health`의 `chat_mode`가 `rule`이면 UI 사이드바에 규칙 모드 배지가 뜬다. 지도는 어느 모드에서도 나온다.
 - `/chat`은 같은 `thread_id`로 계속 물어도 된다 — 턴마다 그래프 상태를 비우고 처음부터 돈다(`docs/DECISIONS.md` DP13).
+- **테마길 명소**: `GET /spots?theme=벚꽃&sido=서울` — 공공자료 4종 합본 7,265개 노선(15개 시도).
+  공원·하천변·등산로가 여기 있다(석촌호수 1,660그루 등). 지도 우상단 '명소 표시'로 켠다.
+  좌표가 노선당 한 점이라 **선이 아니라 점**으로 찍는다. 그루수는 자료마다 조사가 달라 출처를 함께 본다(DP24).
+- **지역 범위**: 명소 목록·지도는 **전국**, 경로 찾기(`plan_route`)는 **서울만**(보행 도로망을 서울만 받음).
 - **경로 3가지**: `POST /tools/plan_route {origin, dest, season, theme}` — 빠른 도보 경로 · 그 계절 테마 경유 · 회피.
   **도보 기준**이다 — 거리에 도로 종류별 계수(보도 1.0 · 간선 2.3)를 곱한 체감 길이로 길을 고르고,
   답변에는 실제 미터·소요 시간(4km/h)·큰길 아닌 길 비율을 준다(DP19).
