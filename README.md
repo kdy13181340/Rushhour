@@ -23,7 +23,7 @@ scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별
 scripts/06_eval_routes.py      경로 가중치 검증(약속을 지키는지) — data/eval/route_pairs  — BE
 scripts/07_build_theme_spots.py 공공자료 4종 → 테마길 합본(공원·하천·전국)              — BE
 app/
-  themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
+  themes.py        테마 8종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A
   map_api.py       지도 마커/히트맵 좌표 헬퍼(@tool 아님, UI용)      — A↔C
   llm.py           get_chat_model (로컬 8080 / Gemini / OpenAI)    — 공통
@@ -87,7 +87,7 @@ $env:AGENT_CHANNEL = "none"; .venv\Scripts\python -m uvicorn backend.main:app --
 ```bash
 # 백엔드 (저장소 루트에서)
 AGENT_CHANNEL=none  $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 모델 서버 없이: 규칙 intake + 템플릿 답변
-AGENT_CHANNEL=local $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 8080 모델 서버 있을 때 (bash /workspace/course/week5/start_agent_server.sh)
+AGENT_CHANNEL=local $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 8080 모델 서버 있을 때 (bash deploy/start_agent_server.sh)
 
 # UI
 RUSHHOUR_API=http://localhost:8000 $PY -m streamlit run app/app_streamlit.py \

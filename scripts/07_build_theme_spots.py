@@ -55,14 +55,38 @@ SRC_RANK = {SRC["maple"]: 0, SRC["junggu_park"]: 1, SRC["nation"]: 2,
 
 # 수종 문구 → 우리 테마 키. 자료마다 표기가 달라 낱말로 잡는다
 # ('왕벚나무+은행나무', '느티나무, 단풍나무 등' 같은 자유 문자열이 온다).
-THEME_WORDS = {
-    "벚꽃": ("벚나무", "왕벚", "양벚", "벚꽃"),
+# **themes.py의 수종 목록을 뿌리로 쓴다** — 테마가 늘어도 여기를 안 고쳐도 따라간다.
+# EXTRA_WORDS는 공공자료에만 나오는 이표기·동의어다.
+EXTRA_WORDS = {
+    "벚꽃": ("왕벚", "양벚", "벚꽃"),
     "은행단풍": ("은행",),
     "은행회피": ("은행",),
-    "이팝": ("이팝",),
-    "메타세쿼이아": ("메타세쿼이아", "메타세콰이어", "메타세콰이아"),
-    "그늘": ("느티", "버즘", "플라타너스", "회화나무", "칠엽수", "백합나무"),
+    "그늘": ("버즘", "플라타너스", "칠엽수", "백합나무"),
+    "메타세쿼이아": ("메타세콰이어", "메타세콰이아"),
+    "크리스마스": ("전나무", "가문비", "주목"),
+    "상록": ("상록", "전나무"),
 }
+
+
+def _theme_words() -> dict[str, tuple[str, ...]]:
+    from themes import THEMES as _T
+    out = {}
+    for key, spec in _T.items():
+        # '은행나무 암나무' → '은행나무'(첫 낱말), '벚나무류' → '벚나무'(접미사 제거).
+        # 공공자료는 '왕벚나무+은행나무'처럼 자유 문자열이라 낱말이 짧아야 걸린다.
+        words = set()
+        for sp in spec["species"]:
+            head = sp.split()[0]
+            words.add(head)
+            for sfx in ("류", "나무류"):
+                if head.endswith(sfx) and len(head) - len(sfx) >= 2:
+                    words.add(head[: -len(sfx)])
+        words |= set(EXTRA_WORDS.get(key, ()))
+        out[key] = tuple(sorted(words, key=len, reverse=True))
+    return out
+
+
+THEME_WORDS = _theme_words()
 MIN_TREES = 10          # 이보다 적으면 '길'이라 부르기 어렵다
 COLS = ["출처", "지역구분", "시도", "시군구", "구분", "노선명", "구간", "수종", "테마",
         "그루수", "연장_km", "특징", "위도", "경도", "시작위도", "시작경도", "종료위도", "종료경도",

@@ -16,6 +16,7 @@ const SEASON_TAG = {
   summer:    { label: '여름',   color: '#2d6a4f' },
   autumn:    { label: '가을',   color: '#e76900' },
   winter:    { label: '겨울',   color: '#1565c0' },
+  allseason: { label: '사계절', color: '#546e7a' },
 };
 
 const SEASON_BG = {
@@ -23,18 +24,23 @@ const SEASON_BG = {
   summer:    'linear-gradient(160deg,#e8f5e9 0%,#f1f8f4 60%,#e3f2fd 100%)',
   autumn:    'linear-gradient(160deg,#fff8e1 0%,#fffdf5 60%,#fbe9e7 100%)',
   winter:    'linear-gradient(160deg,#e3f2fd 0%,#f5f8ff 60%,#ede7f6 100%)',
-  idle:      'linear-gradient(160deg,#f5f3ef 0%,#fafaf8 60%,#eef5ef 100%)',
+  allseason: 'linear-gradient(160deg,#f5f3ef 0%,#fafaf8 60%,#eef5ef 100%)',
 };
 
-const SEASON_ORDER = ['spring', 'summer', 'autumn', 'winter'];
+/* 시안(figma2)은 계절 탭·좌측 목록 모두 봄→여름→가을→겨울→사계절 순이다.
+   경로가 하나도 켜지지 않은 상태는 '사계절'로 본다(App.tsx currentSeason). */
+const SEASON_ORDER = ['spring', 'summer', 'autumn', 'winter', 'allseason'];
 
+/* 시안(figma2)의 8개 그대로 — 백엔드 THEMES에 크리스마스·상록이 추가돼 전부 답할 수 있다. */
 const QUICK_CHIPS = [
   { label: '🌸 벚꽃 봄산책',     q: '벚꽃길 추천해줘' },
   { label: '🌳 여름 그늘길',     q: '여름 그늘 시원한 길' },
-  { label: '🟡 가을 은행 단풍',  q: '가을 은행 단풍길' },
-  { label: '❄️ 이팝 흰꽃길',     q: '이팝나무 흰꽃길' },
+  { label: '🍂 가을 은행 단풍',  q: '가을 은행 단풍길' },
+  { label: '✿ 이팝 흰꽃길',      q: '이팝나무 흰꽃길' },
   { label: '🌲 메타세쿼이아',    q: '메타세쿼이아 이국길' },
-  { label: '🍂 은행 냄새 회피',  q: '은행 냄새 회피 경로' },
+  { label: '🎄 크리스마스 축제', q: '크리스마스 축제길' },
+  { label: '🌿 상록 소나무',     q: '사철 상록 소나무길' },
+  { label: '🟡 은행 냄새 회피',  q: '은행 냄새 회피 경로' },
 ];
 
 const WELCOME =
@@ -49,6 +55,16 @@ const byId = (id) => document.getElementById(id);
 const nf = (n) => Number(n).toLocaleString('ko-KR');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* figma2 시안이 바꾼 표현 — 이모지(이팝 ✿ · 은행 냄새 회피 🟡 · 은행 단풍 🍂)와
+   '사계' 테마의 사계절 그룹 배치. 백엔드 DTO(web_ui.PRESENTATION)는 두고 화면에서 입힌다. */
+const EMOJI = { ipaeb: '✿', 'ginkgo-avoid': '🟡', 'ginkgo-enjoy': '🍂' };
+function decorate(r) {
+  if (EMOJI[r.id]) r.emoji = EMOJI[r.id];
+  if (/사계/.test(r.seasonLabel || '')) r.season = 'allseason';
+  return r;
+}
+const emojiClass = (r) => 'emoji' + (r.id === 'ipaeb' ? ' ipaeb' : '');
 
 /* ── 나무 그리기(DP24) ──────────────────────────────────────
    두 갈래 자료를 같은 나무 그림으로 그린다.
@@ -272,7 +288,7 @@ function flyToActive() {
 map.on('zoomend moveend', drawTrees);
 
 /* ── 렌더 ─────────────────────────────────────────────────── */
-const currentSeason = () => (state.active[0] ? state.active[0].season : 'idle');
+const currentSeason = () => (state.active[0] ? state.active[0].season : 'allseason');
 
 function renderSeasons() {
   const now = currentSeason();
@@ -283,23 +299,35 @@ function renderSeasons() {
   }).join('');
 }
 
+/* 시안(figma2)의 ROUTE_GROUPS — 계절별 소제목 아래 묶는다. 시안은 id를 박아 두었지만
+   여기서는 백엔드가 준 season으로 묶고, 비어 있는 계절(겨울 등)은 소제목을 내지 않는다. */
 function renderList() {
-  byId('themelist').innerHTML = state.routes.map((r) => {
-    const on = isActive(r);
-    const tag = SEASON_TAG[r.season] || SEASON_TAG.spring;
-    return `<button class="trow" data-id="${r.id}" aria-pressed="${on}"
-      style="--line:${r.color};--tint:${r.color}12">
-      <span class="emoji">${r.emoji}</span>
-      <span class="txt">
-        <span class="nm">${esc(r.name)}</span>
-        <span class="meta">
-          <span class="badge" style="color:${tag.color};background:${tag.color}18">${tag.label}</span>
-          <span class="gu">${esc(r.district)}</span>
-        </span>
-      </span>
-      ${on ? '<span class="dot"></span>' : ''}
-    </button>`;
+  byId('themelist').innerHTML = SEASON_ORDER.map((s) => {
+    const rows = state.routes.filter((r) => (r.season || 'allseason') === s);
+    if (!rows.length) return '';
+    const tag = SEASON_TAG[s];
+    return `<div class="tgroup">
+      <div class="tgroup-title" style="color:${tag.color}">${tag.label}</div>
+      ${rows.map(themeRow).join('')}
+    </div>`;
   }).join('');
+}
+
+function themeRow(r) {
+  const on = isActive(r);
+  const tag = SEASON_TAG[r.season] || SEASON_TAG.allseason;
+  return `<button class="trow" data-id="${r.id}" aria-pressed="${on}"
+    style="--line:${r.color};--tint:${r.color}12">
+    <span class="${emojiClass(r)}">${r.emoji}</span>
+    <span class="txt">
+      <span class="nm">${esc(r.name)}</span>
+      <span class="meta">
+        <span class="badge" style="color:${tag.color};background:${tag.color}18">${tag.label}</span>
+        <span class="gu">${esc(r.district)}</span>
+      </span>
+    </span>
+    ${on ? '<span class="dot"></span>' : ''}
+  </button>`;
 }
 
 function renderChips() {
@@ -318,7 +346,7 @@ function renderLegend() {
 }
 
 function applySeason() {
-  byId('chatpanel').style.background = SEASON_BG[currentSeason()] || SEASON_BG.idle;
+  byId('chatpanel').style.background = SEASON_BG[currentSeason()] || SEASON_BG.allseason;
 }
 
 /* ── 챗 ───────────────────────────────────────────────────── */
@@ -342,7 +370,7 @@ function cardsHtml(routes) {
   return `<div class="cards">` + routes.map((r) => `
     <button class="card" data-id="${r.id}"
       style="--line15:${r.color}15;--line28:${r.color}28;--line44:${r.color}44">
-      <span class="emoji">${r.emoji}</span>
+      <span class="${emojiClass(r)}">${r.emoji}</span>
       <span class="txt">
         <span class="nm">${esc(r.name)}</span>
         <span class="sub">${esc(r.district)} · ${esc(r.seasonLabel)} · ${nf(r.treeCount)}그루</span>
@@ -380,7 +408,7 @@ function scrollChat() {
 async function setActive(briefs) {
   state.active = (briefs || []).map((b) => {
     const base = state.routes.find((x) => x.id === b.id) || {};
-    return Object.assign({}, base, b, { _lines: [] });   // 좁힌 쪽이 전역을 덮는다
+    return decorate(Object.assign({}, base, b, { _lines: [] }));   // 좁힌 쪽이 전역을 덮는다
   });
   state.hoverId = null;
   renderSeasons(); renderList(); renderLegend(); applySeason(); drawLines();
@@ -474,10 +502,39 @@ byId('chatform').addEventListener('submit', (e) => {
   sendQuery(v);
 });
 
+/* ── 산책길 검색(출발지→목적지) — figma2 시안의 route finder ─────────────
+   입력 칸 위의 토글 버튼을 누르면 팝오버가 뜨고, 두 칸을 채워 보내면
+   시안과 같은 문장("A에서 B까지 가로수 산책 경로를 찾아줘")으로 /chat에 묻는다. */
+const rf = {
+  toggle: byId('rf-toggle'), pop: byId('rf-pop'),
+  origin: byId('rf-origin'), dest: byId('rf-dest'), send: byId('rf-send'),
+};
+function rfUpdate() {
+  rf.send.disabled = !(rf.origin.value.trim() && rf.dest.value.trim());
+}
+function rfOpen(open) {
+  rf.pop.hidden = !open;
+  rf.toggle.setAttribute('aria-expanded', String(open));
+  if (open) rf.origin.focus();
+}
+function rfSend() {
+  const a = rf.origin.value.trim(), b = rf.dest.value.trim();
+  if (!a || !b) return;
+  sendQuery(`${a}에서 ${b}까지 가로수 산책 경로를 찾아줘`);
+  rf.origin.value = ''; rf.dest.value = ''; rfUpdate();
+  rfOpen(false);
+}
+rf.toggle.addEventListener('click', () => rfOpen(rf.pop.hidden));
+rf.origin.addEventListener('input', rfUpdate);
+rf.dest.addEventListener('input', rfUpdate);
+rf.dest.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rfSend(); } });
+rf.origin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rf.dest.focus(); } });
+rf.send.addEventListener('click', rfSend);
+
 /* ── 시작 ─────────────────────────────────────────────────── */
 (async function boot() {
   const o = await (await fetch('/ui/overview')).json();
-  state.routes = o.themes;
+  state.routes = o.themes.map(decorate);
 
   byId('stats').innerHTML =
     `<div><b>${o.totals.themes}</b><span>테마 경로</span></div>` +

@@ -31,8 +31,8 @@ route  : 출발·도착이 둘 다 있으면 회랑 경유 추천 (route_theme_s
 ## 실행
 
 ```bash
-# 1) 로컬 에이전트 서버(코스 8080) 기동
-bash /workspace/course/week5/start_agent_server.sh
+# 1) 로컬 에이전트 서버(8080) 기동 — 저장소 자체 스크립트(deploy/README.md 참고)
+bash deploy/start_agent_server.sh
 # 2) 그래프를 샘플 질의로 시험
 cd <repo>
 AGENT_CHANNEL=none /root/venvs/rushhour/bin/python app/graph.py   # 서버 없이
@@ -41,6 +41,10 @@ AGENT_CHANNEL=local /root/venvs/rushhour/bin/python app/graph.py  # 8080 있을 
 
 API로 돌리려면: `AGENT_CHANNEL=gemini GEMINI_API_KEY=... python graph.py`
 (또는 `AGENT_CHANNEL=openai OPENAI_API_KEY=...`).
+
+경로 질의의 출발/도착을 **장소명·랜드마크**('올림픽공원','롯데타워','강남역')로 주려면
+카카오 로컬 REST 키가 필요하다: `KAKAO_REST_API_KEY=...`. 없으면 자치구명·`lat,lon`만
+해석되고 장소명은 "좌표로 해석 못함"으로 떨어진다(`tools._geocode_kakao`, 서울 결과 우선).
 
 의존성(파드 재배포 시 복구): `uv pip install langchain-core langgraph langchain-openai pandas openpyxl`
 
@@ -65,7 +69,7 @@ LLM 경로(intake 추출·resolver 문장 생성)는 8080 서버 또는 API 키�
 ## UI 실행 (C)
 
 ```bash
-bash /workspace/course/week5/start_agent_server.sh    # 채팅용 8080
+bash deploy/start_agent_server.sh    # 채팅용 8080 (저장소 자체 스크립트)
 cd <repo>
 AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_streamlit.py
 ```

@@ -21,7 +21,6 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
 """
 
 import json
-import os
 import sqlite3
 import sys
 import time
@@ -37,6 +36,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))          # app/ 모듈은 평면 import(dev1 구조 유지)
 
+from config import get_settings                       # noqa: E402
 from graph import build_graph, MAX_HOPS, new_turn_input   # noqa: E402
 from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points, theme_points        # noqa: E402
@@ -49,7 +49,7 @@ from tools import available_districts, data_source, find_theme_streets   # noqa:
 from backend.trace import make_tracer                  # noqa: E402
 from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload_cached  # noqa: E402
 
-CHECKPOINT_PATH = Path(os.environ.get("CHECKPOINT_DB", ROOT / "data" / "checkpoints.sqlite"))
+CHECKPOINT_PATH = Path(get_settings().checkpoint_db)
 STATE = {}
 
 
@@ -62,7 +62,7 @@ def _make_checkpointer():
 
 def _llm_reachable() -> dict:
     """8080(또는 AGENT_BASE_URL) 모델 서버가 살아 있는지 1초 안에 확인."""
-    channel = os.environ.get("AGENT_CHANNEL", "local").lower()
+    channel = get_settings().agent_channel.lower()
     if channel == "none":
         return {"channel": "none", "reachable": False, "model": None}
     if channel in ("gemini", "openai"):
@@ -265,8 +265,13 @@ def chat(body: ChatIn):
                     patch = patch or {}
                     tracer.event("node", {"thread_id": thread_id, "name": node,
                                           "keys": sorted(k for k in patch if k != "visited")})
-                    # 좌표 무거운 hits는 노드 이벤트에선 요약만, final에서 전체
-                    slim = {k: v for k, v in patch.items() if k not in ("visited", "hits")}
+                    # 에이전트 도구 호출 스텝은 궤적·UI 상태줄용으로 따로 남긴다(🔧 tool ✓)
+                    for step in patch.get("tool_steps") or []:
+                        tracer.event("tool_call", {"thread_id": thread_id, "tool": step["tool"],
+                                                   "ok": step["ok"]})
+                    # 좌표 무거운 hits·에이전트 messages(원본 BaseMessage)는 노드 이벤트에서 제외.
+                    # hits는 final에서 전체, tool_steps(요약)는 그대로 흘려 UI가 진행을 보여준다.
+                    slim = {k: v for k, v in patch.items() if k not in ("visited", "hits", "messages")}
                     if "hits" in patch:
                         slim["hits_ok"] = bool((patch["hits"] or {}).get("ok"))
                     yield _sse("node", {"name": node, "patch": slim})

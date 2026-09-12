@@ -34,7 +34,7 @@ def test_health(client):
 
 
 def test_meta(client):
-    assert set(client.get("/themes").json()) == {"은행회피", "벚꽃", "그늘", "이팝", "은행단풍", "메타세쿼이아"}
+    assert set(client.get("/themes").json()) == {"은행회피", "벚꽃", "그늘", "이팝", "은행단풍", "메타세쿼이아", "크리스마스", "상록"}
     assert client.get("/districts").json()["count"] == 25
 
 
@@ -43,7 +43,7 @@ def test_leaflet_ui_shell_and_dtos(client):
     shell = client.get("/")
     assert shell.status_code == 200 and "WALK SEOUL" in shell.text
     overview = client.get("/ui/overview").json()
-    assert overview["totals"]["districts"] == 25 and len(overview["themes"]) == 6
+    assert overview["totals"]["districts"] == 25 and len(overview["themes"]) == 8
     assert all(t["paths"] and not t["points"] for t in overview["themes"])
     detail = client.get(f"/ui/theme/{overview['themes'][0]['id']}").json()
     assert detail["points"] and detail["streets"]

@@ -13,19 +13,19 @@
 
 import functools
 import math
-import os
 import sys
 from pathlib import Path
 
+import httpx
 import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 
+from config import ROOT, get_settings
 from themes import THEMES
 
-ROOT = Path(__file__).resolve().parents[1]
-PARQUET_PATH = Path(os.environ.get("TREE_PARQUET", ROOT / "data" / "processed" / "seoul_trees.parquet"))
-CSV_PATH = Path(os.environ.get("TREE_CSV", ROOT / "data" / "seoul_tree_data.csv"))
+PARQUET_PATH = Path(get_settings().tree_parquet)   # import 시 1회(정적 경로)
+CSV_PATH = Path(get_settings().tree_csv)
 
 
 @functools.lru_cache(maxsize=1)
@@ -206,8 +206,91 @@ def district_centroid(gu: str):
     return (round(float(sub["위도"].mean()), 6), round(float(sub["경도"].mean()), 6))
 
 
+# 카카오 로컬 키워드검색 — 장소명/랜드마크 → 좌표. REST 키 없으면 건너뜀.
+KAKAO_LOCAL_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
+
+
+# 성공한 해소 결과만 캐시한다(query → (위도,경도)). 실패(None)는 캐시하지 않아
+# 키 미설정·403·일시 네트워크 오류가 복구되면 다음 호출에서 자동으로 다시 시도된다.
+_GEOCODE_CACHE: dict[str, tuple] = {}
+# 지오코딩으로 해소된 자치구(query → '송파구'). 카카오 주소에서 뽑는다. resolver 그라운딩용:
+# '롯데타워→용산구'처럼 LLM이 구를 추측해 틀리는 걸 막고, 도구가 아는 실제 구만 밝히게 한다.
+_GEOCODE_DISTRICT: dict[str, str] = {}
+
+
+def _geocode_clear_cache() -> None:
+    """지오코딩 성공 캐시 비우기(테스트·재설정용)."""
+    _GEOCODE_CACHE.clear()
+    _GEOCODE_DISTRICT.clear()
+
+
+def _district_from_addr(doc: dict) -> str:
+    """카카오 결과의 주소에서 서울 자치구명을 뽑는다(25개 중 하나). 없으면 ''."""
+    addr = f"{doc.get('address_name', '')} {doc.get('road_address_name', '')}"
+    for gu in available_districts():
+        if gu in addr:
+            return gu
+    return ""
+
+
+def _geocode_kakao(query: str):
+    """장소명·랜드마크(예: '올림픽공원','롯데타워','강남역') → (위도, 경도).
+
+    카카오 로컬 키워드검색으로 해소한다. 서울 안 결과를 우선 채택(회랑이 데이터
+    범위 안에 들게). 키(KAKAO_REST_API_KEY) 없음·네트워크 실패·결과 없음이면 None —
+    예외를 던지지 않아 오프라인/테스트에서도 조용히 기존 폴백으로 빠진다.
+    성공 결과만 캐시하므로 설정/네트워크 복구 시 재기동 없이 다음 호출에서 반영된다.
+    """
+    query = (query or "").strip()
+    if not query:
+        return None
+    if query in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[query]
+    key = get_settings().kakao_rest_api_key.strip()
+    if not key:
+        return None
+    try:
+        resp = httpx.get(
+            KAKAO_LOCAL_URL,
+            params={"query": query, "size": 15},
+            headers={"Authorization": f"KakaoAK {key}"},
+            timeout=4.0,
+        )
+        resp.raise_for_status()
+        docs = resp.json().get("documents", [])
+    except Exception as exc:  # noqa: BLE001 — 네트워크·스키마 실패는 None으로 폴백
+        print(f"  [geocode 폴백] 카카오 실패({type(exc).__name__}) query={query!r}")
+        return None
+    if not docs:
+        return None
+    # 서울 소재 결과 우선(없으면 최상위). address_name/road_address_name로 판별.
+    def _is_seoul(d: dict) -> bool:
+        addr = (d.get("address_name") or "") + (d.get("road_address_name") or "")
+        return addr.startswith("서울")
+    pick = next((d for d in docs if _is_seoul(d)), docs[0])
+    try:
+        point = (round(float(pick["y"]), 6), round(float(pick["x"]), 6))  # y=위도, x=경도
+    except (KeyError, TypeError, ValueError):
+        return None
+    _GEOCODE_CACHE[query] = point                # 성공만 캐시
+    _GEOCODE_DISTRICT[query] = _district_from_addr(pick)   # resolver 그라운딩용 자치구
+    return point
+
+
+def _district_of(s: str) -> str:
+    """장소/자치구 표현이 어느 자치구인지(그라운딩용). 자치구명은 그대로, 장소명은 지오코딩 캐시에서.
+
+    _resolve_point가 먼저 호출돼 지오코딩 캐시를 채운 뒤 부르는 것을 전제한다(route_theme_streets 순서).
+    좌표('lat,lon')·미해소는 ''(reverse 지오코딩은 범위 밖).
+    """
+    s = (s or "").strip()
+    if s in available_districts():
+        return s
+    return _GEOCODE_DISTRICT.get(s, "")
+
+
 def _resolve_point(s: str):
-    """'lat,lon' 또는 서울 자치구명 → (위도, 경도). 해석 불가면 None."""
+    """'lat,lon' · 서울 자치구명 · 장소명(카카오 지오코딩) → (위도, 경도). 해석 불가면 None."""
     s = (s or "").strip()
     if "," in s:
         try:
@@ -216,8 +299,10 @@ def _resolve_point(s: str):
         except ValueError:
             pass
     if s in available_districts():
-        return district_centroid(s)
-    return None
+        return district_centroid(s)          # 자치구는 데이터 centroid(오프라인·안정)
+    if not s:
+        return None
+    return _geocode_kakao(s)                  # 랜드마크·역명·건물명은 지오코딩으로 해소
 
 
 def _seg_dist_km(lat, lon, a, b):
@@ -243,14 +328,15 @@ def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) 
     아니라 두 지점을 잇는 직선 주변(회랑)에서 만나는 도로다.
 
     Args:
-        origin: 출발지. 서울 자치구명(예: '강남구') 또는 'lat,lon' 좌표.
+        origin: 출발지. 서울 자치구명(예: '강남구')·장소명/랜드마크(예: '올림픽공원',
+            '롯데타워', '강남역')·'lat,lon' 좌표. 장소명은 카카오 지오코딩으로 좌표 해소.
         dest: 목적지. 형식은 origin과 같다.
         theme: 은행회피·벚꽃·그늘·이팝·은행단풍·메타세쿼이아 중 하나.
         width_m: 회랑 반폭(m). 기본 500.
 
     Returns:
-        {ok, kind:'route', theme, origin, dest, streets:[{구,노선,그루수,center}],
-         corridor:{line:[[lat,lon],[lat,lon]], bbox}, focus, note}
+        {ok, kind:'route', theme, origin, dest, origin_district, dest_district,
+         streets:[{구,노선,그루수,center}], corridor:{line:[[lat,lon],[lat,lon]], bbox}, focus, note}
         해석 불가/경유 나무 없음이면 ok=False 와 사유.
     """
     if theme not in THEMES:
@@ -266,10 +352,18 @@ def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) 
     spec = THEMES[theme]
     hit = _load()[_load()["수종"].isin(spec["species"])]
     dist = _seg_dist_km(hit["위도"], hit["경도"], a, b)
+    # 짧거나 데이터가 성긴 회랑 대응: 요청 폭에서 나무가 없으면 넓혀 재시도(최대 1500m).
+    # 예) 올림픽공원→롯데타워는 500m엔 벚꽃이 없지만 900m엔 있다.
     within = hit[dist <= width_m / 1000.0]
+    for wider in (900, 1500):
+        if not within.empty or wider <= width_m:
+            break
+        width_m = wider
+        within = hit[dist <= width_m / 1000.0]
     if within.empty:
         return {"ok": False, "kind": "route", "theme": theme,
                 "origin": origin, "dest": dest,
+                "origin_district": _district_of(origin), "dest_district": _district_of(dest),
                 "reason": f"가는 길(±{width_m}m)에 {theme} 가로수가 거의 없음"}
     top = (within.groupby(["구", "노선"]).size()
            .sort_values(ascending=False).head(6).reset_index(name="그루수"))
@@ -286,6 +380,8 @@ def route_theme_streets(origin: str, dest: str, theme: str, width_m: int = 500) 
     return {
         "ok": True, "kind": "route", "theme": theme, "mode": spec["mode"],
         "season": spec["season"], "origin": origin, "dest": dest, "width_m": width_m,
+        # 출발/도착이 실제 어느 자치구인지(지오코딩·자치구명 기준). resolver가 추측 대신 이 값만 쓴다.
+        "origin_district": _district_of(origin), "dest_district": _district_of(dest),
         "total_trees": int(len(within)), "streets": streets,
         "corridor": {"line": [[round(a[0], 6), round(a[1], 6)],
                               [round(b[0], 6), round(b[1], 6)]], "bbox": bbox},

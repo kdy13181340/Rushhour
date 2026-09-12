@@ -103,8 +103,14 @@ def _graph():
     idx = pd.Series(np.arange(len(nodes)), index=nodes["node"].to_numpy())
     edges = edges.assign(a=np.minimum(edges["u"], edges["v"]), b=np.maximum(edges["u"], edges["v"]))
     edges = edges.merge(etrees, on=["a", "b"], how="left")
+    # 테마가 늘어난 직후엔 스냅 테이블(scripts/05 산출물)에 그 컬럼이 없다. 죽지 않고 0으로 두고,
+    # 재색인이 필요하다는 것만 알린다 — 경로 탐색은 나머지 테마로 계속 돌아야 한다.
+    missing = [k for k in THEMES if k not in edges.columns]
+    if missing:
+        print(f"  [routing] 스냅 테이블에 없는 테마 {missing} — python scripts/05_snap_trees.py 재실행 필요")
     for key in THEMES:
-        edges[key] = edges[key].fillna(0).to_numpy()
+        edges[key] = (edges[key].fillna(0).to_numpy() if key in edges.columns
+                      else np.zeros(len(edges)))
     edges["가로수노선"] = edges["가로수노선"].fillna("")
 
     ui = idx.reindex(edges["u"].to_numpy()).to_numpy()
