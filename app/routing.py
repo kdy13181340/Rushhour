@@ -314,6 +314,51 @@ def _extend(g: dict, ends: dict, used: set, node: int, out: list) -> None:
         cur = v if forward else u
 
 
+def way_path(name: str, max_paths: int = 3) -> list[list[list[float]]]:
+    """OSM 도로 이름 하나의 실제 형상(이어지는 것끼리 사슬로).  [DP24]
+
+    공공자료 합본에는 노선당 좌표가 한 점뿐이라 '1,660그루'가 점 하나로 찍힌다. 그 길의 실제
+    형상을 알면 구간을 따라 보여 줄 수 있다 — 개별 나무 위치를 아는 게 아니라 **구간을 표시**하는 것이다.
+    """
+    if not name or not osm_ready():
+        return []
+    try:
+        g = _graph()
+    except Exception:  # noqa: BLE001
+        return []
+    rows = np.flatnonzero(g["name"] == name)
+    if not len(rows):
+        return []
+    seen, uniq = set(), []
+    for r in rows:
+        key = (min(int(g["ui"][r]), int(g["vi"][r])), max(int(g["ui"][r]), int(g["vi"][r])))
+        if key not in seen:
+            seen.add(key)
+            uniq.append(int(r))
+    ends: dict[int, list[int]] = {}
+    for r in uniq:
+        ends.setdefault(int(g["ui"][r]), []).append(r)
+        ends.setdefault(int(g["vi"][r]), []).append(r)
+    used: set[int] = set()
+    paths: list[tuple[float, list]] = []
+    for start in uniq:
+        if start in used:
+            continue
+        used.add(start)
+        u, v = int(g["ui"][start]), int(g["vi"][start])
+        coords = _geom(g, start, True)
+        _extend(g, ends, used, v, coords)
+        head: list[list[float]] = []
+        _extend(g, ends, used, u, head)
+        if head:
+            coords = head[::-1][:-1] + coords
+        if len(coords) >= 2:
+            length = sum(abs(a[0] - b[0]) + abs(a[1] - b[1]) for a, b in zip(coords, coords[1:]))
+            paths.append((length, coords))
+    paths.sort(key=lambda t: -t[0])
+    return [c for _, c in paths[:max_paths]]
+
+
 def street_paths(gu: str, line: str, theme: str, max_paths: int = 8) -> list[list[list[float]]]:
     """(구, 노선)에서 그 테마 나무가 붙은 **실제 보행 도로**의 형상.  [DP20]
 

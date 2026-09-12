@@ -56,6 +56,13 @@ def _light_row(r) -> dict:
         "km": None if pd.isna(r["연장_km"]) else round(float(r["연장_km"]), 2),
         "t": [t for t in str(r["테마"]).split(",") if t],
         "ll": [round(float(r["위도"]), 6), round(float(r["경도"]), 6)],
+        # 구간 형상이 있으면 함께. 개별 나무 위치가 아니라 '이 구간'이라는 표시다.
+        "path": [[[round(float(y), 6), round(float(x), 6)] for y, x in seg]
+                 for seg in (r["구간형상"] if r.get("구간형상") is not None else [])] or None,
+        # 형상이 없으면 시작~종료 두 점. 화면에서 구간을 따라 나무를 뿌리는 데 쓴다.
+        "se": ([[round(float(r["시작위도"]), 6), round(float(r["시작경도"]), 6)],
+                [round(float(r["종료위도"]), 6), round(float(r["종료경도"]), 6)]]
+               if not pd.isna(r["시작위도"]) and not pd.isna(r["종료위도"]) else None),
         "src": r["출처"],
     }
 

@@ -110,8 +110,9 @@ const TREE_SVGS = {
 const SIZE_VARIANTS = [38, 42, 36, 44, 40, 38, 46, 34, 40, 42];
 
 /** 나무 한 그루짜리 Leaflet divIcon. 시안과 같이 밑동(anchor)을 좌표에 맞춘다. */
-function treeIcon(routeId, seed) {
-  const size = SIZE_VARIANTS[seed % SIZE_VARIANTS.length];
+/* size를 주면 그 크기로 — 합본 점은 노선당 한 그루라 조금 크게 그린다(DP24). */
+function treeIcon(routeId, seed, size) {
+  size = size || SIZE_VARIANTS[seed % SIZE_VARIANTS.length];
   const draw = TREE_SVGS[routeId] || TREE_SVGS.shade;
   const w = (routeId === 'metasequoia' || routeId === 'evergreen') ? size * 0.7 : size;
   const h = size + 12;

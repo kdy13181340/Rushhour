@@ -36,10 +36,8 @@
     <div class="mapwrap">
       <div id="map"></div>
       <div class="legend" id="legend" hidden></div>
-      <!-- 공공자료 합본(공원·하천·전국)의 나무를 점으로 얹는 토글 — 도로 형상이 아니라 위치 표시다 -->
-      <label class="spotstoggle" id="spotstoggle" hidden>
-        <input type="checkbox" id="spotson"> <span id="spotslabel">나무 표시</span>
-      </label>
+      <!-- 나무는 '켠 테마'에 맞춰 저절로 나온다. 토글을 두지 않는다 — 물은 것만 보여 주면 된다. -->
+      <div class="treecount" id="treecount" hidden></div>
       <div class="credit">서울시 가로수 데이터 기반 · 지도 &copy; OpenStreetMap 기여자</div>
       <div class="boot" id="boot">가로수 데이터를 불러오는 중…</div>
     </div>

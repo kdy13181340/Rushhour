@@ -15,6 +15,7 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
   POST /tools/plan_route           출발→도착 경로 3가지 (최단·테마 경유·회피)  [DP17]
   GET  /spots                      테마길 목록(공원·하천·전국) — 공공자료 합본  [DP24]
   GET  /spots/points               좌표 있는 노선을 전부 — 지도에 나무로 뿌리는 용도
+  GET  /map/theme_points           그 테마 가로수 좌표 **전부**(서울) — 상위 6개 도로만이 아니라
   GET  /themes  · GET /districts   UI 셀렉트박스용 메타
   GET  /map/street_points          지도 마커 좌표 (map_api.street_points)
 """
@@ -38,7 +39,7 @@ sys.path.insert(0, str(ROOT / "app"))          # app/ 모듈은 평면 import(de
 
 from graph import build_graph, MAX_HOPS, new_turn_input   # noqa: E402
 from llm import AGENT_BASE_URL                         # noqa: E402
-from map_api import street_points                      # noqa: E402
+from map_api import street_points, theme_points        # noqa: E402
 from rag import rag_status, search_places              # noqa: E402
 from routing import osm_status, plan_route             # noqa: E402
 from spots import all_points, find_spots, spots_status  # noqa: E402
@@ -194,6 +195,14 @@ def spots(theme: str = "", sido: str = "", sigungu: str = "", kind: str = "",
     """테마길 명소 목록. 좌표는 노선당 한 점이라 화면에는 점으로 찍는다(도로 형상 아님)."""
     return find_spots(theme=theme, sido=sido, sigungu=sigungu, kind=kind,
                       k=k, seoul_only=seoul_only)
+
+
+@app.get("/map/theme_points")
+def map_theme_points(theme: str, district: str = "", limit: int = 60000):
+    """그 테마 가로수의 좌표를 전부(서울). 상위 6개 도로만 주면 석촌호수처럼 순위 밖의 길이
+    지도에서 사라진다 — 나무는 거기 있는데 안 보이는 셈이라 전부 준다."""
+    pts = theme_points(theme, district=district, limit=limit)
+    return {"theme": theme, "count": len(pts), "points": pts}
 
 
 @app.get("/map/street_points")

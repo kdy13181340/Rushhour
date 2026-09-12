@@ -65,7 +65,8 @@ THEME_WORDS = {
 }
 MIN_TREES = 10          # 이보다 적으면 '길'이라 부르기 어렵다
 COLS = ["출처", "지역구분", "시도", "시군구", "구분", "노선명", "구간", "수종", "테마",
-        "그루수", "연장_km", "특징", "위도", "경도", "시작위도", "시작경도", "종료위도", "종료경도", "매칭"]
+        "그루수", "연장_km", "특징", "위도", "경도", "시작위도", "시작경도", "종료위도", "종료경도",
+        "매칭", "구간형상"]
 
 
 def themes_of(text) -> list[str]:
@@ -281,6 +282,31 @@ def fix_length(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def attach_shapes(df: pd.DataFrame) -> pd.DataFrame:
+    """이름을 맞춘 행에 **그 길의 실제 형상**을 담는다.  [DP24]
+
+    합본은 노선당 좌표가 한 점뿐이라 '석촌호수 1,660그루'가 점 하나로 찍힌다. 형상이 있으면
+    구간을 따라 보여 줄 수 있다 — 개별 나무 위치를 아는 게 아니라 **어느 구간인지**를 표시하는 것이다.
+    """
+    try:
+        import routing as R
+        if not R.osm_ready():
+            return df
+    except Exception:  # noqa: BLE001
+        return df
+    shapes, hit = [], 0
+    for _, r in df.iterrows():
+        m = re.search(r"\(([^:]+):(.+)\)", str(r.get("매칭") or ""))
+        path = R.way_path(m.group(2), max_paths=2) if m else []
+        if path:
+            hit += 1
+        shapes.append(path or None)
+    df = df.copy()
+    df["구간형상"] = shapes
+    print(f"  구간 형상을 얻은 노선 {hit}/{len(df)}")
+    return df
+
+
 def _harmonize(df: pd.DataFrame) -> pd.DataFrame:
     """그루수를 nullable 정수로 통일한다 — 미기재(<NA>)와 0을 섞지 않기 위해서."""
     df = df.copy()
@@ -342,6 +368,7 @@ def main() -> None:
         print(f"(도로망 없음: {type(exc).__name__} — OSM 이름 매칭은 건너뛴다)")
 
     b = from_maple(pools)
+    b = attach_shapes(b)
     out = mark_duplicates(fix_length(_harmonize(pd.concat([c, b, d, a], ignore_index=True))))
 
     print(f"A 서울 가로수 대장   {len(a):6,}개 · {int(a['그루수'].sum()):9,}그루 (좌표 있음)")

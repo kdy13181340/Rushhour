@@ -50,58 +50,83 @@ const nf = (n) => Number(n).toLocaleString('ko-KR');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ── 공공자료 합본의 나무(DP24) ──────────────────────────────
-   가로수 대장 밖의 공원·하천·등산로와 **전국** 노선까지, 좌표가 있는 것을 전부 찍는다.
-   좌표는 노선당 대표점 하나뿐이라 **선이 아니라 점**이다 — 두 점을 이어 선을 그리면
-   실제 도로를 따라간 경로처럼 보여 거짓이 된다. 점 크기는 그루수, 색은 구분이다. */
-const SPOT_COLOR = { 가로: '#2d6a4f', 공원: '#40916c', 하천변: '#1565c0', 등산로: '#8a6d3b' };
+/* ── 나무 그리기(DP24) ──────────────────────────────────────
+   두 갈래 자료를 같은 나무 그림으로 그린다.
+     ① 가로수 대장  — 나무 한 그루마다 좌표가 있다. 그 테마 **전부**를 받는다(벚꽃 31,550그루).
+        상위 6개 도로만 받던 때는 석촌호수처럼 순위 밖의 길이 지도에서 사라졌다.
+     ② 공공자료 합본 — 노선당 대표점 하나뿐이다(공원·하천·전국). 한 그루처럼 보이면 안 되므로
+        그루수를 툴팁에 적고 크기를 키운다.
+   화면에 보이는 것만, 46px 격자로 솎아 그린다(visibleTrees) — 수천 개를 다 그리면 지도가 멈춘다. */
+const themePtCache = {};        // 테마별 가로수 대장 좌표
+const spotCache = {};           // 테마별 합본 점
 
-const spotCache = {};                           // 테마별로 한 번만 받아 둔다
+async function fetchJSON(url) {
+  try { return await (await fetch(url)).json(); } catch { return null; }
+}
+
+async function loadThemeTrees(theme) {
+  if (themePtCache[theme] === undefined) {
+    const d = await fetchJSON(`/map/theme_points?theme=${encodeURIComponent(theme)}`);
+    themePtCache[theme] = d?.points || [];
+  }
+  return themePtCache[theme];
+}
 
 async function loadSpots(theme) {
   const key = theme || '';
-  if (!spotCache[key]) {
-    const url = `/spots/points${key ? `?theme=${encodeURIComponent(key)}` : ''}`;
-    spotCache[key] = await (await fetch(url)).json();
+  if (spotCache[key] === undefined) {
+    const d = await fetchJSON(`/spots/points${key ? `?theme=${encodeURIComponent(key)}` : ''}`);
+    spotCache[key] = d?.ok ? d.points : [];
   }
-  const d = spotCache[key];
-  spotLayer.clearLayers();
-  if (!d.ok) return 0;
-  d.points.forEach((s) => {
-    const r = s.c ? Math.max(3, Math.min(13, Math.sqrt(s.c) / 5)) : 3.5;
-    L.circleMarker(s.ll, {
-      renderer: spotCanvas, radius: r, color: '#fff', weight: 1,
-      fillColor: SPOT_COLOR[s.k] || '#2d6a4f', fillOpacity: .78,
-    }).bindPopup(
-      `<div class="spot-pop"><b>${esc(s.n)}</b>${esc(s.g)} · ${esc(s.k)}<br>` +
-      `${esc(s.s)}<br>${s.c === null ? '그루수 미기재' : `${nf(s.c)}그루`}` +
-      `${s.km ? ` · ${s.km}km` : ''}` +
-      `<div class="src">출처: ${esc(s.src)}</div></div>`
-    ).addTo(spotLayer);
-  });
-  spotsLoaded = true;
-  return d.count;
+  return spotCache[key];
 }
 
-/* 켜진 테마를 따라간다 — '봄 벚꽃길'을 누르면 벚꽃이 전국에서 켜져야 한다.
-   왼쪽 목록의 선·나무 아이콘은 가로수 대장의 서울 상위 6개 도로뿐이라, 전국은 여기서 채운다. */
+/* 한 노선을 대표하는 구간. 실제 도로 형상이 있으면 그것을, 없으면 시작~종료 두 점을 쓴다.
+   두 점이 너무 멀면(5km 초과) 직선이 실제 길과 크게 어긋나므로 쓰지 않는다. */
+function pickSegment(s) {
+  if (s.path && s.path.length) return s.path.reduce((a, b) => (a.length >= b.length ? a : b));
+  if (!s.se) return null;
+  const [a, b] = s.se;
+  const km = Math.hypot((a[0] - b[0]) * 111.32, (a[1] - b[1]) * 88.8);
+  return km > 0.02 && km < 5 ? s.se : null;
+}
+
+/* 구간을 따라 n개를 고르게 — 길이에 비례해 나눠 짚는다. */
+function spreadAlong(line, n) {
+  if (n <= 1 || line.length < 2) return [line[Math.floor(line.length / 2)]];
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < line.length; i += 1) {
+    const d = Math.hypot((line[i][0] - line[i - 1][0]) * 111.32,
+                         (line[i][1] - line[i - 1][1]) * 88.8);
+    seg.push(d); total += d;
+  }
+  if (!total) return [line[0]];
+  const out = [];
+  for (let k = 0; k < n; k += 1) {
+    let want = (total * (k + 0.5)) / n;
+    for (let i = 0; i < seg.length; i += 1) {
+      if (want <= seg[i] || i === seg.length - 1) {
+        const t = seg[i] ? Math.min(1, want / seg[i]) : 0;
+        out.push([line[i][0] + (line[i + 1][0] - line[i][0]) * t,
+                  line[i][1] + (line[i + 1][1] - line[i][1]) * t]);
+        break;
+      }
+      want -= seg[i];
+    }
+  }
+  return out;
+}
+
+/* 켠 테마에 맞는 나무를 받아 둔다. 토글은 두지 않는다 — 물은 것만 보여 주면 된다. */
 async function refreshSpots() {
-  if (!byId('spotson')?.checked) return;
-  // 켜진 것이 '테마'일 때만 그 테마로 좁힌다. 경로 답변의 key는 shortest/theme/avoid라
-  // 그대로 넘기면 검색 결과가 0이 되어 지도가 텅 빈다.
   const known = new Set(state.routes.map((r) => r.key));
-  const k = state.active[0]?.key;
-  const theme = known.has(k) ? k : '';
-  const label = byId('spotslabel');
-  label.textContent = '불러오는 중…';
-  const n = await loadSpots(theme);
-  spotLayer.addTo(map);
-  label.textContent = theme ? `${theme} ${nf(n)}곳` : `나무 ${nf(n)}곳`;
-}
-
-async function toggleSpots(on) {
-  if (!on) { map.removeLayer(spotLayer); byId('spotslabel').textContent = '나무 표시'; return; }
-  await refreshSpots();
+  await Promise.all(state.active.map(async (r) => {
+    const theme = known.has(r.key) ? r.key : '';
+    if (!theme) { r._spots = []; r._all = []; return; }
+    [r._all, r._spots] = await Promise.all([loadThemeTrees(theme), loadSpots(theme)]);
+  }));
+  drawTrees();
 }
 
 /* ── 지도 ─────────────────────────────────────────────────── */
@@ -124,8 +149,6 @@ const activeLayer = L.layerGroup().addTo(map);  // 켜진 경로
 const treeLayer = L.layerGroup().addTo(map);
 const spotLayer = L.layerGroup();               // 공공자료 합본 나무(점) — 토글로 켠다
 // 전국 수천 개를 DOM 마커로 그리면 지도가 멈춘다. 캔버스에 한 번에 그린다.
-const spotCanvas = L.canvas({ padding: .3 });
-let spotsLoaded = false;                        // 한 번 받아 두고 다시 쓴다
 
 const isActive = (r) => state.active.some((a) => a.id === r.id);
 
@@ -199,14 +222,45 @@ function visibleTrees(points, cap) {
 
 function drawTrees() {
   treeLayer.clearLayers();
-  const cap = Math.max(30, Math.floor(170 / Math.max(1, state.active.length)));
+  spotLayer.clearLayers();
+  const n = Math.max(1, state.active.length);
+  const cap = Math.max(40, Math.floor(420 / n));
+  let drawn = 0;
   state.active.forEach((r) => {
-    if (!r.points) return;
-    visibleTrees(r.points, cap).forEach(([lat, lng], i) => {
+    // ① 가로수 대장 — 그 테마 전부에서 화면에 보이는 것만. 좁힌 답변이면 그 점을 먼저 쓴다.
+    const pool = (r.points && r.points.length ? r.points : null) || r._all || [];
+    visibleTrees(pool, cap).forEach(([lat, lng], i) => {
       L.marker([lat, lng], { icon: treeIcon(r.id, (i * 7) % 10), interactive: false })
         .addTo(treeLayer);
+      drawn += 1;
+    });
+    // ② 합본 — 대장에 없는 공원·하천·전국. 좌표가 노선당 한 점뿐이라 한 그루처럼 보이므로,
+    //    아는 구간(실제 도로 형상 또는 시작~종료)을 따라 흩뿌린다. 개별 나무 위치를 아는 게
+    //    아니라 '이 구간에 이만큼 있다'는 표시다 — 툴팁에 그루수와 출처를 적는다.
+    const spots = r._spots || [];
+    const bounds = map.getBounds().pad(0.15);
+    const near = spots.filter((s) => bounds.contains(s.ll));
+    const perSpot = Math.max(20, Math.floor(140 / n));
+    near.slice(0, perSpot).forEach((s, si) => {
+      const line = pickSegment(s);
+      const want = s.c ? Math.min(14, Math.max(1, Math.round(Math.sqrt(s.c) / 6))) : 1;
+      const spread = line ? spreadAlong(line, want) : [s.ll];
+      const big = s.c && s.c > 800;
+      spread.forEach((ll, i) => {
+        L.marker(ll, { icon: treeIcon(r.id, (si * 3 + i * 5) % 10, big && i === 0 ? 46 : 34) })
+          .bindTooltip(`${esc(s.n)} · ${esc(s.k)} · ${s.c === null ? '그루수 미기재' : nf(s.c) + '그루'}`
+                       + `<br><span style="opacity:.65">${esc(s.g)} · 출처 ${esc(s.src)}</span>`)
+          .addTo(spotLayer);
+      });
+      drawn += spread.length;
     });
   });
+  spotLayer.addTo(map);
+  const box = byId('treecount');
+  if (box) {
+    box.hidden = !state.active.length;
+    if (state.active.length) box.textContent = `화면에 나무 ${nf(drawn)}그루`;
+  }
 }
 
 function flyToActive() {
@@ -342,8 +396,7 @@ async function setActive(briefs) {
       if (cached) cached.points = r.points;             // 다음 턴을 위해 캐시
     } catch { r.points = []; }
   }));
-  drawTrees();
-  refreshSpots();                 // 켜진 테마의 전국 나무도 같이 갱신(DP24)
+  refreshSpots();                 // 나무(대장 전체 + 합본)를 받아 그린다(DP24)
 }
 
 async function sendQuery(q) {
@@ -436,14 +489,6 @@ byId('chatform').addEventListener('submit', (e) => {
   byId('boot').hidden = true;
 
   // 공공자료 합본이 준비돼 있을 때만 명소 토글을 보여 준다(DP24).
-  const health = await (await fetch('/health')).json().catch(() => ({}));
-  if (health?.spots?.ready) {
-    byId('spotstoggle').hidden = false;
-    byId('spotson').addEventListener('change', (e) => toggleSpots(e.target.checked));
-    // 기본으로 켠다 — 꺼 두면 전국 자료가 있는 줄 모른 채 서울 6개 도로만 보게 된다.
-    byId('spotson').checked = true;
-    refreshSpots();
-  }
 
   // 시안과 같이 경로를 하나도 켜지 않은 상태에서 인사말로 시작한다.
   bubble('assistant', WELCOME);
