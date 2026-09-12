@@ -241,14 +241,12 @@ function drawTrees() {
   spotLayer.clearLayers();
   const n = Math.max(1, state.active.length);
   const cap = Math.max(40, Math.floor(420 / n));
-  let drawn = 0;
   state.active.forEach((r) => {
     // ① 가로수 대장 — 그 테마 전부에서 화면에 보이는 것만. 좁힌 답변이면 그 점을 먼저 쓴다.
     const pool = (r.points && r.points.length ? r.points : null) || r._all || [];
     visibleTrees(pool, cap).forEach(([lat, lng], i) => {
       L.marker([lat, lng], { icon: treeIcon(r.id, (i * 7) % 10), interactive: false })
         .addTo(treeLayer);
-      drawn += 1;
     });
     // ② 합본 — 대장에 없는 공원·하천·전국. 좌표가 노선당 한 점뿐이라 한 그루처럼 보이므로,
     //    아는 구간(실제 도로 형상 또는 시작~종료)을 따라 흩뿌린다. 개별 나무 위치를 아는 게
@@ -268,15 +266,9 @@ function drawTrees() {
                        + `<br><span style="opacity:.65">${esc(s.g)} · 출처 ${esc(s.src)}</span>`)
           .addTo(spotLayer);
       });
-      drawn += spread.length;
     });
   });
   spotLayer.addTo(map);
-  const box = byId('treecount');
-  if (box) {
-    box.hidden = !state.active.length;
-    if (state.active.length) box.textContent = `화면에 나무 ${nf(drawn)}그루`;
-  }
 }
 
 function flyToActive() {

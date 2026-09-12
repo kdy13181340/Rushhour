@@ -275,10 +275,6 @@ input{font:inherit}
 .field button:disabled{background:var(--muted); color:var(--faint); cursor:default}
 .disclaimer{font-size:11px; color:var(--faint); text-align:center; margin:8px 0 0}
 
-/* 지금 그려진 나무가 몇 그루인지 — 지도 우상단, 확대 버튼 아래(DP24) */
-.treecount{position:absolute;right:12px;top:96px;z-index:600;background:#fff;border-radius:8px;
-  padding:7px 11px;font-size:12.5px;font-weight:600;color:#33413a;
-  box-shadow:0 2px 8px rgba(0,0,0,.18);pointer-events:none}
 .spot-pop b{display:block;margin-bottom:3px}
 .spot-pop .src{color:#6b7671;font-size:11.5px}
 
