@@ -38,6 +38,10 @@ AGENT_CHANNEL=local /root/venvs/rushhour/bin/python app/graph.py  # 8080 있을 
 API로 돌리려면: `AGENT_CHANNEL=gemini GEMINI_API_KEY=... python graph.py`
 (또는 `AGENT_CHANNEL=openai OPENAI_API_KEY=...`).
 
+경로 질의의 출발/도착을 **장소명·랜드마크**('올림픽공원','롯데타워','강남역')로 주려면
+카카오 로컬 REST 키가 필요하다: `KAKAO_REST_API_KEY=...`. 없으면 자치구명·`lat,lon`만
+해석되고 장소명은 "좌표로 해석 못함"으로 떨어진다(`tools._geocode_kakao`, 서울 결과 우선).
+
 의존성(파드 재배포 시 복구): `uv pip install langchain-core langgraph langchain-openai pandas openpyxl`
 
 ## 검증된 것 (LLM 없이)
@@ -69,12 +73,15 @@ AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_stre
 
 ## 벡터DB(RAG) 연동 지점 — week4
 
-팀원이 CSV로 벡터DB를 구성하면, 에이전트에 **검색 도구 하나(@tool)**로 붙인다(도구 계약만 지키면 됨):
+팀원이 CSV로 벡터DB를 구성하면, 에이전트에 **검색 도구 하나(@tool)**로 붙인다(도구 계약만 지키면 됨).
+**확정 계약·배선·합의 체크리스트는 `../docs/RAG_SEARCH_PLACES_CONTRACT.md`** 참조(반환은 dict로 확정 —
+아래 초안의 `list[dict]`에서 변경됨):
 ```python
 @tool
-def search_places(query: str, k: int = 5) -> list[dict]:
-    """자유서술·장소명으로 가로수/도로를 의미검색. 예: '벚꽃 유명한 하천길', '양재천 근처'.
-    반환: [{구, 노선, 수종, score}] — 이후 find_theme_streets로 좌표를 얻는다."""
+def search_places(query: str, k: int = 5) -> dict:
+    """장소명·구어체·자유서술로 가로수/도로를 의미검색. 예: '강남역 근처 벚꽃', '양재천 산책'.
+    반환: {ok, query, top_district, candidates:[{구,노선,수종,score}], reason}
+    — top_district로 자치구를 해소한 뒤 find_theme_streets로 좌표를 얻는다."""
 ```
 쓰임새: ① **장소명/구어체 매칭**("강남역 근처", "양재천") → 자치구·도로로 해소(현재 못 하는 부분),
 ② 테마에 안 잡히는 **자유 질의** 대응. graph.py의 `intake`가 자치구를 못 뽑을 때 researcher가

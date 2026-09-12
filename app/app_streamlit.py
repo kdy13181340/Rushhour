@@ -20,14 +20,15 @@
 """
 
 import json
-import os
 import uuid
 
 import httpx
 import pydeck as pdk
 import streamlit as st
 
-API = os.environ.get("RUSHHOUR_API", "http://localhost:8000").rstrip("/")
+from config import get_settings
+
+API = get_settings().rushhour_api.rstrip("/")
 
 # 테마 → 지도 마커 색 (RGB). themes.py의 순서와 맞춤.
 THEME_RGB = {

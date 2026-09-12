@@ -7,10 +7,11 @@ langchain-core>=1.0
 langgraph>=1.0
 langgraph-checkpoint-sqlite>=3.0   # 스레드 체크포인트(HITL·복구)
 langchain-openai>=1.0
+pydantic-settings>=2.0   # app/config.py — .env + 환경변수 중앙 설정
 openai>=1.0              # 로컬 서버 모델 id 조회에 사용
 fastapi>=0.115           # backend/
 uvicorn[standard]>=0.30
-httpx>=0.27              # UI → API 클라이언트, /health 모델 서버 확인
+httpx>=0.27              # UI→API 클라이언트 · 카카오 지오코딩(tools) · /health 확인
 streamlit>=1.63          # UI (pydeck 동봉)
 pytest>=8                # tests/ (LLM 없이 실행 가능)
 # 선택: langfuse>=3      # TRACE_BACKEND=langfuse 일 때만
