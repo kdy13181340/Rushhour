@@ -8,11 +8,13 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 
 <div class="shell">
+  <!-- 테마 켤 때 화면 전체에 흩뿌리는 입자 오버레이(effects.js). 클릭을 막지 않는다. -->
+  <div class="fx" id="fx" aria-hidden="true"></div>
 
   <!-- ── 상단 헤더 ────────────────────────────────────────── -->
   <header class="topbar">
@@ -80,7 +82,8 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="trees.js"></script>
-<script src="app.js"></script>
+<script src="trees.js?v=4"></script>
+<script src="effects.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
