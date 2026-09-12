@@ -161,6 +161,8 @@ def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
         if r.get("theme"):
             verb = "피함" if r["kind"] == "avoid" else "지남"
             trees = f" · {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
+        elif r.get("passes_theme"):           # 최단 경로도 그 테마를 몇 그루 지나는지 보여준다
+            trees = f" · {r['passes_theme']} {r.get('passes_trees', 0)}그루 지남"
         out.append({
             "id": meta["id"], "key": r["kind"], "name": route_card_name(r["kind"], theme, r["label"]),
             "emoji": meta["emoji"], "color": meta["color"], "mode": "route",

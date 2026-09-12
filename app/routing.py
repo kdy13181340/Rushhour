@@ -289,6 +289,15 @@ def plan_routes(origin: tuple[float, float], dest: tuple[float, float], season: 
             item["base_trees"] = base_info["trees"][theme]      # 최단으로 갔을 때와 비교
             item["note"] = spec.get("note", "")
         out.append(item)
+    # 최단 경로에도 '그 테마를 몇 그루 지나는지' 붙인다 — 0으로 보이던 게 실은 테마를 안 센 것.
+    # 기준 테마는 함께 제안된 테마 경로의 테마(사용자가 물은 것). 비교용이라 theme은 건드리지 않는다.
+    theme_routes = [it for it in out if it.get("theme")]
+    if theme_routes:
+        ctx = theme_routes[0]["theme"]
+        for it in out:
+            if it["kind"] == "shortest":
+                it["passes_theme"] = ctx
+                it["passes_trees"] = base_info["trees"].get(ctx, 0)
     return {"ok": bool(out), "kind": "route_plan",
             "origin": [round(oy, 6), round(ox_, 6)], "dest": [round(dy, 6), round(dx, 6)],
             "season": season, "routes": out,

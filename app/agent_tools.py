@@ -39,6 +39,8 @@ def _compact_hits(hits: dict, place_line: str = "") -> str:
             if r.get("theme"):
                 extra = (f" / {r['theme']} {r.get('theme_trees', 0)}그루"
                          f"(최단으로 가면 {r.get('base_trees', 0)}그루)")
+            elif r.get("passes_theme"):       # 최단 경로도 그 테마를 몇 그루 지나는지
+                extra = f" / {r['passes_theme']} {r.get('passes_trees', 0)}그루 지남"
             rows.append(f"  - [{r['label']}] {r['distance_m']}m 걸어서 약 {r.get('minutes', 0)}분, "
                         f"가장 빠른 길 대비 +{r['detour_pct']}%, 큰길 아닌 길 "
                         f"{round(r.get('walk_share', 0) * 100)}%"
