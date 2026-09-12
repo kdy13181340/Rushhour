@@ -56,8 +56,15 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
    실제 도로를 따라간 경로처럼 보여 거짓이 된다. 점 크기는 그루수, 색은 구분이다. */
 const SPOT_COLOR = { 가로: '#2d6a4f', 공원: '#40916c', 하천변: '#1565c0', 등산로: '#8a6d3b' };
 
-async function loadSpots() {
-  const d = await (await fetch('/spots/points')).json();
+const spotCache = {};                           // 테마별로 한 번만 받아 둔다
+
+async function loadSpots(theme) {
+  const key = theme || '';
+  if (!spotCache[key]) {
+    const url = `/spots/points${key ? `?theme=${encodeURIComponent(key)}` : ''}`;
+    spotCache[key] = await (await fetch(url)).json();
+  }
+  const d = spotCache[key];
   spotLayer.clearLayers();
   if (!d.ok) return 0;
   d.points.forEach((s) => {
@@ -76,13 +83,25 @@ async function loadSpots() {
   return d.count;
 }
 
-async function toggleSpots(on) {
-  if (!on) { map.removeLayer(spotLayer); return; }
+/* 켜진 테마를 따라간다 — '봄 벚꽃길'을 누르면 벚꽃이 전국에서 켜져야 한다.
+   왼쪽 목록의 선·나무 아이콘은 가로수 대장의 서울 상위 6개 도로뿐이라, 전국은 여기서 채운다. */
+async function refreshSpots() {
+  if (!byId('spotson')?.checked) return;
+  // 켜진 것이 '테마'일 때만 그 테마로 좁힌다. 경로 답변의 key는 shortest/theme/avoid라
+  // 그대로 넘기면 검색 결과가 0이 되어 지도가 텅 빈다.
+  const known = new Set(state.routes.map((r) => r.key));
+  const k = state.active[0]?.key;
+  const theme = known.has(k) ? k : '';
   const label = byId('spotslabel');
-  if (!spotsLoaded) { label.textContent = '불러오는 중…'; }
-  const n = spotsLoaded ? spotLayer.getLayers().length : await loadSpots();
+  label.textContent = '불러오는 중…';
+  const n = await loadSpots(theme);
   spotLayer.addTo(map);
-  label.textContent = `나무 ${nf(n)}곳`;
+  label.textContent = theme ? `${theme} ${nf(n)}곳` : `나무 ${nf(n)}곳`;
+}
+
+async function toggleSpots(on) {
+  if (!on) { map.removeLayer(spotLayer); byId('spotslabel').textContent = '나무 표시'; return; }
+  await refreshSpots();
 }
 
 /* ── 지도 ─────────────────────────────────────────────────── */
@@ -324,6 +343,7 @@ async function setActive(briefs) {
     } catch { r.points = []; }
   }));
   drawTrees();
+  refreshSpots();                 // 켜진 테마의 전국 나무도 같이 갱신(DP24)
 }
 
 async function sendQuery(q) {
@@ -419,8 +439,10 @@ byId('chatform').addEventListener('submit', (e) => {
   const health = await (await fetch('/health')).json().catch(() => ({}));
   if (health?.spots?.ready) {
     byId('spotstoggle').hidden = false;
-    byId('spotslabel').textContent = `나무 ${nf(health.spots.spots)}곳`;
     byId('spotson').addEventListener('change', (e) => toggleSpots(e.target.checked));
+    // 기본으로 켠다 — 꺼 두면 전국 자료가 있는 줄 모른 채 서울 6개 도로만 보게 된다.
+    byId('spotson').checked = true;
+    refreshSpots();
   }
 
   // 시안과 같이 경로를 하나도 켜지 않은 상태에서 인사말로 시작한다.
