@@ -701,8 +701,7 @@ rf.send.addEventListener('click', rfSend);
 
   byId('stats').innerHTML =
     `<div><b>${o.totals.themes}</b><span>테마 경로</span></div>` +
-    `<div><b>${nf(o.totals.trees)}</b><span>가로수 총계</span></div>` +
-    `<div><b>${o.totals.districts}</b><span>커버 구</span></div>`;
+    `<div><b>${nf(o.totals.trees)}</b><span>가로수 총계</span></div>`;   // '커버 구'는 전국 자료가 들어와 뜻이 흐려져 뺐다
 
   renderSeasons(); renderList(); renderChips(); applySeason();
   drawLines();
