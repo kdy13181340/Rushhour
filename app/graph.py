@@ -488,7 +488,9 @@ def template_answer(state: RouteState) -> str:
                 tail = (f", {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
                         f"(최단은 {r.get('base_trees', 0)}그루)")
             detour = f" (+{r['detour_pct']}%)" if r["detour_pct"] else ""
-            rows.append(f"{'①②③'[i]} {r['label']} {r['distance_m']:,}m·약 {r.get('minutes', 0)}분"
+            m = r["distance_m"]
+            dist = f"{m / 1000:.1f}km" if m >= 1000 else f"{m}m"
+            rows.append(f"{'①②③'[i]} {r['label']} {dist}·약 {r.get('minutes', 0)}분"
                         f"{detour}{tail}"
                         f" — {', '.join(r.get('streets', [])[:3]) or '이름 없는 길'}")
         return head + " " + " / ".join(rows) + f" {hits.get('note', '')}"

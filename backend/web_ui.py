@@ -158,19 +158,21 @@ def route_plan_payload(hits: dict, season: str = "") -> list[dict]:
             meta = {**meta, "emoji": ROUTE_THEME_EMOJI.get(theme, PRESENTATION[theme]["emoji"])}
         detour = f" · +{r['detour_pct']}%" if r["detour_pct"] else ""
         trees = ""
-        if r.get("theme"):
+        if r.get("theme"):                    # 테마/회피 경로에만 그루수(앱의 핵심 가치).
             verb = "피함" if r["kind"] == "avoid" else "지남"
             trees = f" · {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
-        elif r.get("passes_theme"):           # 최단 경로도 그 테마를 몇 그루 지나는지 보여준다
-            trees = f" · {r['passes_theme']} {r.get('passes_trees', 0)}그루 지남"
+        # 최단 경로 카드엔 그루수를 안 넣는다 — 빠른 길의 요점은 속도다(그루수 비교는 답변이 해준다).
+        m = r["distance_m"]
+        dist = f"{m / 1000:.1f}km" if m >= 1000 else f"{m}m"
         out.append({
             "id": meta["id"], "key": r["kind"], "name": route_card_name(r["kind"], theme, r["label"]),
             "emoji": meta["emoji"], "color": meta["color"], "mode": "route",
             # 화면이 테마 나무를 경로 회랑에 그리고(theme_key), 카드 아이콘을 나무 그림으로 바꾸는 데(icon) 쓴다.
             "theme_key": theme, "icon": PRESENTATION[theme]["id"] if theme in PRESENTATION else "",
             "season": (spec.get("seasons") or [season or "autumn"])[0],
-            "seasonLabel": (f"{r['distance_m']:,}m · 약 {r.get('minutes', 0)}분{detour}"
-                            f" · 걷는 길 {round(r.get('walk_share', 0) * 100)}%{trees}"),
+            # '한적한 길 %' = 큰길(간선) 아닌 보도·이면도로 비율(walk_share). 높을수록 조용히 걷기 좋음.
+            "seasonLabel": (f"{dist} · 약 {r.get('minutes', 0)}분{detour}"
+                            f" · 한적한 길 {round(r.get('walk_share', 0) * 100)}%{trees}"),
             "district": f"{hits.get('origin_name', '')} → {hits.get('dest_name', '')}",
             "roads": r.get("streets", [])[:3], "treeCount": r.get("theme_trees", 0),
             "streets": [], "paths": [r["path"]] if r.get("path") else [], "points": [],
