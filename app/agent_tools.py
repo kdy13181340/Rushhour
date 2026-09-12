@@ -115,9 +115,13 @@ def adopt_results(results: list[tuple[str, dict]], state: dict) -> dict:
             elif best is None:                    # ok 없으면 마지막 실패라도 사유 전달용
                 best = res
     if best is not None:
-        # 이미 성공 hits가 있으면 나중 라운드의 실패로 덮어쓰지 않는다(예: route 성공 뒤 plan_route 실패).
+        # 라운드 간에도 우선순위를 지킨다: 이미 성공 hits가 있으면 (1) 실패로 덮지 않고,
+        # (2) 더 낮은 등급 성공으로도 덮지 않는다. 예) plan_route(route_plan, 3경로)가 이미 있으면
+        # 나중 라운드의 route_theme_streets(route)가 덮어써 3경로가 유실되지 않게.
         prev = state.get("hits") or {}
-        if best.get("ok") or not prev.get("ok"):
+        prev_rank = _KIND_RANK.get(prev.get("kind"), 0) if prev.get("ok") else -1
+        take = (not prev.get("ok")) or (best.get("ok") and best_rank >= prev_rank)
+        if take:
             patch["hits"] = best
             patch["verdict"] = "match" if best.get("ok") else "no_data"
             # 에이전트가 실제로 쓴 테마를 state.theme에 반영 — prescan 계절 기본값과 다를 수 있고,
