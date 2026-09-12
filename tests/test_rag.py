@@ -48,7 +48,9 @@ def test_build_street_docs_shape():
     assert all(d["metadata"]["그루수"] >= R.MIN_TREES for d in docs)
     # 회피 테마엔 키워드('냄새')를 넣지 않는다 — '냄새 안 나는 길'이 은행나무 길로 끌려가지 않게
     ginkgo = by_id["종로구|자하문로"]["text"]
-    assert "은행 냄새 회피" in ginkgo and "냄새," not in ginkgo and "냄새;" not in ginkgo
+    from themes import THEMES
+    assert THEMES["은행회피"]["label"] in ginkgo
+    assert "냄새," not in ginkgo and "냄새;" not in ginkgo
 
 
 # ── 색인·검색 (세션 픽스처: 임시 디렉터리에 해시 인덱스) ─────────────────────

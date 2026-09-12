@@ -40,7 +40,7 @@ const QUICK_CHIPS = [
   { label: '🌲 메타세쿼이아',    q: '메타세쿼이아 이국길' },
   { label: '🎄 크리스마스 축제', q: '크리스마스 축제길' },
   { label: '🌿 상록 소나무',     q: '사철 상록 소나무길' },
-  { label: '🟡 은행 냄새 회피',  q: '은행 냄새 회피 경로' },
+  { label: '🟡 은행 열매 피하기', q: '은행 열매 밟지 않는 길' },
 ];
 
 const WELCOME =
@@ -56,7 +56,7 @@ const nf = (n) => Number(n).toLocaleString('ko-KR');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* figma2 시안이 바꾼 표현 — 이모지(이팝 ✿ · 은행 냄새 회피 🟡 · 은행 단풍 🍂)와
+/* figma2 시안이 바꾼 표현 — 이모지(이팝 ✿ · 은행 열매 밟지 않는 길 🟡 · 은행 단풍 🍂)와
    '사계' 테마의 사계절 그룹 배치. 백엔드 DTO(web_ui.PRESENTATION)는 두고 화면에서 입힌다. */
 const EMOJI = { ipaeb: '✿', 'ginkgo-avoid': '🟡', 'ginkgo-enjoy': '🍂' };
 function decorate(r) {
