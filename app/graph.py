@@ -192,6 +192,43 @@ INTAKE_PROMPT = (
 OUTSIDE_SEOUL_WORDS = ("부산", "해운대", "대구", "인천", "광주", "대전", "울산", "세종", "경기",
                        "수원", "성남", "고양", "용인", "분당", "일산", "제주", "강릉", "속초", "전주",
                        "경주", "춘천", "천안", "청주", "창원", "포항", "여수", "순천", "김해", "양양")
+# 키워드가 부분문자열로 들어간 '서울 안' 지명 — 오프라인(키 없음) 1차 폴백용 예외.
+# 온라인에선 아래 지오코딩이 실제 자치구로 판정하므로 이 목록에 의존하지 않는다.
+SEOUL_EXCEPTIONS = ("세종대학교", "세종대", "세종로", "세종대로", "세종문화", "세종마을", "대전로")
+_PARTICLES = ("에서", "까지", "으로", "로", "에", "은", "는", "이", "가", "의", "도", "역")
+
+
+def _token_with(question: str, sub: str) -> str:
+    """질문에서 sub를 포함한 어절(공백 기준)을 꺼내 흔한 조사를 뗀다 — 지오코딩용."""
+    for tok in question.split():
+        if sub in tok:
+            for p in _PARTICLES:
+                if tok.endswith(p) and len(tok) > len(p):
+                    tok = tok[: -len(p)]
+            return tok
+    return sub
+
+
+def _mentions_outside_seoul(question: str) -> bool:
+    """질문이 '서울 밖' 지명을 가리키는가.
+
+    근본 판정은 **지오코딩**이 한다: 서울 밖 키워드가 걸리면 그 어절을 실제로 해소해,
+    서울 25자치구로 떨어지면 '서울 안'으로 본다('세종대학교'→광진구). 키가 없거나(오프라인·테스트)
+    해소 실패면 SEOUL_EXCEPTIONS로 1차 거르고, 그래도 남으면 키워드를 믿는다(보수적).
+    """
+    masked = question
+    for ex in SEOUL_EXCEPTIONS:
+        masked = masked.replace(ex, "")
+    hit_words = [w for w in OUTSIDE_SEOUL_WORDS if w in masked]
+    if not hit_words:
+        return False
+    from tools import _district_of, _geocode_kakao  # 지연 import(순환 회피)
+    for w in hit_words:
+        token = _token_with(question, w)
+        if _geocode_kakao(token) is not None and _district_of(token):
+            continue                      # 실제로 서울 자치구로 해소됨 → 이 단어는 서울 안
+        return True                       # 비서울로 해소·해소 실패 → 서울 밖으로 본다(보수적)
+    return False
 SUPERLATIVE_WORDS = ("가장", "제일", "최고", "최대", "best", "베스트", "1등", "하나만", "딱 한")
 # '가는 길'뿐 아니라 '가는데'·'갈 때'도 경로 질문이다. 자치구 2개가 함께 있어야 발동하므로
 # 낱말만으로 오탐이 나지는 않는다(rule_intake).
@@ -225,7 +262,7 @@ def rule_intake(question: str, season: str) -> dict:
     다중 매칭이면 현재 계절 테마를 우선하고, 그래도 여럿이면 정의 순서의 첫 번째.
     """
     q = question.replace(" ", "")
-    outside = not match_district(question) and any(w in question for w in OUTSIDE_SEOUL_WORDS)
+    outside = not match_district(question) and _mentions_outside_seoul(question)
     superlative = any(w in question.lower() for w in SUPERLATIVE_WORDS)
     season_override = next(
         (s for s, words in SEASON_WORDS.items() if any(w in question for w in words)), "")
