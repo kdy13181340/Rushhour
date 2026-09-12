@@ -79,7 +79,7 @@ $env:AGENT_CHANNEL = "none"; .venv\Scripts\python -m uvicorn backend.main:app --
 ```bash
 # 백엔드 (저장소 루트에서)
 AGENT_CHANNEL=none  $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 모델 서버 없이: 규칙 intake + 템플릿 답변
-AGENT_CHANNEL=local $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 8080 모델 서버 있을 때 (bash /workspace/course/week5/start_agent_server.sh)
+AGENT_CHANNEL=local $PY -m uvicorn backend.main:app --host 0.0.0.0 --port 8000   # 8080 모델 서버 있을 때 (bash deploy/start_agent_server.sh)
 
 # UI
 RUSHHOUR_API=http://localhost:8000 $PY -m streamlit run app/app_streamlit.py \

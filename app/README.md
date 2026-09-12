@@ -31,8 +31,8 @@ route  : 출발·도착이 둘 다 있으면 회랑 경유 추천 (route_theme_s
 ## 실행
 
 ```bash
-# 1) 로컬 에이전트 서버(코스 8080) 기동
-bash /workspace/course/week5/start_agent_server.sh
+# 1) 로컬 에이전트 서버(8080) 기동 — 저장소 자체 스크립트(deploy/README.md 참고)
+bash deploy/start_agent_server.sh
 # 2) 그래프를 샘플 질의로 시험
 cd <repo>
 AGENT_CHANNEL=none /root/venvs/rushhour/bin/python app/graph.py   # 서버 없이
@@ -69,7 +69,7 @@ LLM 경로(intake 추출·resolver 문장 생성)는 8080 서버 또는 API 키�
 ## UI 실행 (C)
 
 ```bash
-bash /workspace/course/week5/start_agent_server.sh    # 채팅용 8080
+bash deploy/start_agent_server.sh    # 채팅용 8080 (저장소 자체 스크립트)
 cd <repo>
 AGENT_CHANNEL=local /workspace/course/.venv/bin/python -m streamlit run app_streamlit.py
 ```
