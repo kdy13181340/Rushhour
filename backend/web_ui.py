@@ -24,6 +24,8 @@ PRESENTATION = {
     "은행회피": {"id": "ginkgo-avoid", "emoji": "🍂", "color": "#f4a261"},
     "은행단풍": {"id": "ginkgo-enjoy", "emoji": "🟡", "color": "#f9c74f"},
     "메타세쿼이아": {"id": "metasequoia", "emoji": "🌲", "color": "#40916c"},
+    "크리스마스": {"id": "christmas", "emoji": "🎄", "color": "#b52d45"},
+    "상록": {"id": "evergreen", "emoji": "🌿", "color": "#1b4332"},
 }
 BY_ID = {v["id"]: key for key, v in PRESENTATION.items()}
 

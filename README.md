@@ -20,7 +20,7 @@ scripts/03_eval_search_places.py  검색 품질 hit@k·MRR                      
 scripts/04_fetch_osm.py        서울 보행 도로망(OSM) 1회 내려받기 → data/osm/       — BE
 scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별 테마 점수         — BE
 app/
-  themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
+  themes.py        테마 8종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A
   map_api.py       지도 마커/히트맵 좌표 헬퍼(@tool 아님, UI용)      — A↔C
   llm.py           get_chat_model (로컬 8080 / Gemini / OpenAI)    — 공통
