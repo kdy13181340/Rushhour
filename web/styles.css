@@ -234,3 +234,12 @@ input{font:inherit}
 }
 .field button:disabled{background:var(--muted); color:var(--faint); cursor:default}
 .disclaimer{font-size:11px; color:var(--faint); text-align:center; margin:8px 0 0}
+
+/* 밑그림 톤(DP21). 회색으로 완전히 눌렀더니 공원·물·지하철 같은 정보가 다 사라져 칙칙했다.
+   채도를 절반쯤만 빼고 밝기를 올려 카카오·네이버 지도처럼 따뜻하고 연한 바탕으로 만든다 —
+   공원의 초록, 한강의 파랑, 도로 위계는 남기고 경로 색(빨강·노랑·남색)이 그 위에서 살게.
+   tilePane에만 걸리므로 경로 선·나무 마커 색은 영향을 받지 않는다.
+   더 시원한 톤을 원하면: saturate(.62) brightness(1.14) contrast(.86) hue-rotate(-6deg) */
+.leaflet-tile-pane {
+  filter: saturate(0.55) brightness(1.12) contrast(0.88) sepia(0.14);
+}

@@ -12,6 +12,7 @@ Streamlit(UI)은 이 API만 부른다. 그래프·툴은 app/ 의 것을 그대�
   GET  /threads/{thread_id}        체크포인트 상태 조회 (UI 새로고침 복구)
   POST /tools/find_theme_streets   LLM 없이 도구만 호출 (사이드바 '빠른 추천')
   POST /tools/search_places        벡터DB 의미검색 (동네·지명·구어체 → (구, 노선) 후보)  [RAG]
+  POST /tools/plan_route           출발→도착 경로 3가지 (최단·테마 경유·회피)  [DP17]
   GET  /themes  · GET /districts   UI 셀렉트박스용 메타
   GET  /map/street_points          지도 마커 좌표 (map_api.street_points)
 """
@@ -37,11 +38,12 @@ from graph import build_graph, MAX_HOPS, new_turn_input   # noqa: E402
 from llm import AGENT_BASE_URL                         # noqa: E402
 from map_api import street_points                      # noqa: E402
 from rag import rag_status, search_places              # noqa: E402
+from routing import osm_status, plan_route             # noqa: E402
 from embeddings import EMBED_BASE_URL, channel as embed_channel, configured_model   # noqa: E402
 from themes import THEMES, SEASON_LABEL                # noqa: E402
 from tools import available_districts, data_source, find_theme_streets   # noqa: E402
 from backend.trace import make_tracer                  # noqa: E402
-from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload  # noqa: E402
+from backend.web_ui import BY_ID, overview_payload, result_routes, theme_payload_cached  # noqa: E402
 
 CHECKPOINT_PATH = Path(get_settings().checkpoint_db)
 STATE = {}
@@ -110,6 +112,7 @@ def health():
         "data": {"source": data_source(), "districts": len(STATE.get("districts", ()))},
         "llm": llm,
         "rag": rag_status(),        # 벡터DB 인덱스 유무·임베딩 채널 일치 여부 (모델은 로드 안 함)
+        "osm": osm_status(),        # 경로 탐색용 보행 도로망 산출물(scripts/04·05) 유무
         "embed": _embed_reachable(),  # 임베딩 서버(local=llama-server 등) 도달 여부 — 검색 불가 배지용
         # LLM이 없어도 지도는 나온다 — UI는 이 값으로 '채팅은 규칙 모드' 배지를 띄운다
         "chat_mode": "llm" if llm["reachable"] else "rule",
@@ -159,6 +162,22 @@ def tool_search_places(q: PlaceQuery):
     return res
 
 
+class RouteQuery(BaseModel):
+    origin: str = Field(min_length=1, max_length=100)
+    dest: str = Field(min_length=1, max_length=100)
+    season: str = ""
+    theme: str = ""
+
+
+@app.post("/tools/plan_route")
+def tool_plan_route(q: RouteQuery):
+    res = plan_route.invoke(q.model_dump())
+    STATE["tracer"].event("tool_call", {"tool": "plan_route", "args": q.model_dump(),
+                                        "ok": res.get("ok"),
+                                        "kinds": [r["kind"] for r in res.get("routes", [])]})
+    return res
+
+
 @app.get("/map/street_points")
 def map_street_points(gu: str, line: str, theme: str, limit: int = 1000):
     return {"points": street_points(gu, line, theme, limit=limit)}
@@ -175,7 +194,7 @@ def ui_theme(theme_id: str, district: str = ""):
     theme = BY_ID.get(theme_id)
     if theme is None:
         raise HTTPException(404, "모르는 UI 테마")
-    payload = theme_payload(theme, district, include_points=True)
+    payload = theme_payload_cached(theme, district, True)
     if payload is None:
         raise HTTPException(404, "해당 조건의 가로수 데이터 없음")
     return payload

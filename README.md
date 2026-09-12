@@ -17,6 +17,8 @@ data/chroma/<채널>/            벡터DB 인덱스(scripts/02 산출물, gitign
 scripts/01_csv_to_parquet.py   CSV→Parquet + 관리기관 행 12,946건의 구 복원      — A
 scripts/02_build_vector_db.py  (구,노선) 문서 1,780건 → Chroma 색인               — BE
 scripts/03_eval_search_places.py  검색 품질 hit@k·MRR                              — BE
+scripts/04_fetch_osm.py        서울 보행 도로망(OSM) 1회 내려받기 → data/osm/       — BE
+scripts/05_snap_trees.py       나무 28만을 도로 간선에 붙여 간선별 테마 점수         — BE
 app/
   themes.py        테마 6종 정의(선호/회피 수종·계절 키·키워드)     — 공통
   tools.py         데이터 로드 + find_theme_streets/check_coverage(@tool) — A
@@ -24,12 +26,13 @@ app/
   llm.py           get_chat_model (로컬 8080 / Gemini / OpenAI)    — 공통
   embeddings.py    임베딩 채널(local 8082 / openai / gemini / st / hash)  — BE
   rag.py           Chroma 색인 + search_places(@tool) 의미검색          — BE
+  routing.py       plan_route(@tool) 경로 3가지 — 최단·테마 경유·회피     — BE
   graph.py         langgraph supervisor 그래프(season·intake·researcher·light·resolver) — B
   app_streamlit.py 지도(pydeck)+채팅 UI — FastAPI 클라이언트          — C
 backend/
   main.py          FastAPI: /chat(SSE) /tools/* /health /threads   — BE
   trace.py         궤적: JSONL(기본) | Langfuse
-tests/             LLM·임베딩 모델 없이 도는 47건 (도구·라우터·API·멀티턴·벡터DB)
+tests/             LLM·임베딩 모델·도로망 없이 도는 75건 (도구·라우터·API·멀티턴·벡터DB·경로)
 docs/BE_DESIGN.md  설계 v2 · docs/DECISIONS.md 결정 기록
 ```
 
@@ -51,6 +54,10 @@ $PY -m pytest tests -q
 EMBED_CHANNEL=local $PY scripts/02_build_vector_db.py --probe     # 8082 있을 때
 $PY scripts/02_build_vector_db.py --channel hash                  # 서버·모델 없이 — 표기(동네·노선명) 검색만
 $PY scripts/03_eval_search_places.py --channel hash               # 품질 평가(hit@k·MRR)
+
+# 5) 경로 추천(출발→도착 3가지)용 도로망 (선택, 1회 약 5분 + 30초)
+uv pip install --python $PY osmnx
+$PY scripts/04_fetch_osm.py && $PY scripts/05_snap_trees.py        # → data/osm/
 ```
 
 **Windows(PowerShell)** 에서는 파드 venv 대신 저장소 루트에 `.venv`를 만든다(`.gitignore`에 있음).
@@ -88,6 +95,11 @@ AGENT_CHANNEL=none $PY app/graph.py
 - `TRACE_BACKEND=jsonl|langfuse|none`: 궤적은 기본 `results/rushhour_trace.jsonl`.
 - `/health`의 `chat_mode`가 `rule`이면 UI 사이드바에 규칙 모드 배지가 뜬다. 지도는 어느 모드에서도 나온다.
 - `/chat`은 같은 `thread_id`로 계속 물어도 된다 — 턴마다 그래프 상태를 비우고 처음부터 돈다(`docs/DECISIONS.md` DP13).
+- **경로 3가지**: `POST /tools/plan_route {origin, dest, season, theme}` — 빠른 도보 경로 · 그 계절 테마 경유 · 회피.
+  **도보 기준**이다 — 거리에 도로 종류별 계수(보도 1.0 · 간선 2.3)를 곱한 체감 길이로 길을 고르고,
+  답변에는 실제 미터·소요 시간(4km/h)·큰길 아닌 길 비율을 준다(DP19).
+  지도에 그리는 선도 실제 보행 도로 형상이다(DP20).
+  `data/osm/`가 없으면 `/health`의 `osm.ready`가 false이고, 채팅은 기존 회랑 방식으로 답한다(DP17).
 - `EMBED_CHANNEL`: `local`(OpenAI 호환 `/v1/embeddings`, 기본)·`openai`·`gemini`·`st`(sentence-transformers, 별도 설치)·`hash`(모델 없음).
   인덱스는 채널별 `data/chroma/<채널>/`. `/health`의 `rag.ready`가 false면 그 채널로 `scripts/02`를 돌리고,
   `embed.reachable`이 false면 임베딩 서버가 죽은 것. `POST /tools/search_places {query, k, district, min_trees, size_weight}` — 결정·측정은 DP14.

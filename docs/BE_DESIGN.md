@@ -4,15 +4,16 @@
 
 ## 진행 상황 (2026-09-11)
 
-C1~C6 구현 완료(서버 없이 검증, tests 59건 통과). C7 중 `search_places`(벡터DB, RAG)는 구현·평가·
-**그래프 배선까지 완료**(DP14·DP15), `plan_route`·`find_light_spots`는 light 스텁만 배선됨.
+C1~C6 구현 완료(서버 없이 검증, tests 75건 통과). C7 중 `search_places`(벡터DB, RAG)와
+**`plan_route`(경로 3가지)**는 구현·배선 완료(DP14·DP15·DP17), `find_light_spots`는 스텁만 배선됨.
 **제보 등록(register_report)·HITL은 팀 결정으로 범위에서 제외**(DP8).
 같은 thread의 다음 질문이 이전 답을 되돌려주던 결함 수정(DP13), 폴백 ③ 도구 예외 구현(DP10 보강).
 임베딩은 팀 bge-m3 서버(llama-server)로 색인·평가 완료, 8080 LLM(27B) 종단 확인(DP14·DP15).
 결정은 `DECISIONS.md` DP4~DP15.
 
 **BE 남은 것**:
-- `/ui/overview` 캐시 — 첫 화면인데 요청마다 1.3초(테마 6종을 매번 재계산, 결과는 고정)
+- 경로 가중치 α·β·도보 계수를 경로 eval 질의로 재보기(지금은 실측 몇 건으로 고른 값) — DP17·DP19
+- 나무 마커 좌표도 도로에 스냅해서 줄지(지금은 원본 좌표) — DP20 남은 것
 - `size_weight` 모델 독립 정규화 — 후보 안에서 유사도를 정규화한 뒤 더하기(DP14 후속)
 - 평가 질의 확충 — 현재 18건. 채널 비교를 판단하기엔 얇다
 - C7 `find_light_spots` — 같은 Chroma 클라이언트에 컬렉션 추가. **겨울 조명 문서 소스 미정(팀 결정 대기)**
@@ -132,7 +133,7 @@ df.to_parquet(OUT)   # UTF-8, 컬럼명 짧게: 구·노선·수종·도로명·
 
 | 툴 | 데이터 | 노드 | 선행 작업 |
 |---|---|---|---|
-| `plan_route(origin, destination, theme, season)` | OSM 보행망 + 나무→엣지 스냅 테이블 | researcher가 `find_theme_streets` 다음 호출 | osmnx bbox 캐시(GraphML), cKDTree 스냅 1회 배치. 가중치 `length×(1−α·bonus)`, α·수종 점수는 `themes.py`에 |
+| `plan_route(origin, dest, season, theme)` | **구현됨** `app/routing.py` — OSM 보행망(노드 23.8만·간선 68만, scripts/04) + 나무 스냅(97.2%, scripts/05) | `route` 노드가 고정 호출 | 가중치만 바꿔 다익스트라 3번(0.2초). α=0.55·β=2.0. 도로망 없으면 회랑 폴백 (DP17) |
 | `find_light_spots(near, radius_m)` | Chroma(겨울 조명 문서) + 좌표 필터 | `light` (겨울에만 라우팅) | 4주차 임베딩 서버(8082) 재사용. Chroma distance는 툴 안에서 similarity로 뒤집음. 임계값은 eval 질의 20건으로 정함 |
 | `search_places(query, k, district, min_trees, size_weight)` | **구현됨** `app/rag.py` — Chroma (구,노선) 문서 1,780건, 임베딩 채널 5종(`app/embeddings.py`), 채널별 `data/chroma/<채널>/` | intake가 자치구를 못 뽑을 때 researcher가 호출(배선은 B) | eval 18건: e5-small MRR 0.87 · hash(IDF) 0.72 (DP14). 조명 문서는 같은 클라이언트에 컬렉션 추가 |
 
@@ -160,12 +161,13 @@ Rushhour/
     nodes/season.py light.py                 # C1·C3·C7 추가
     tools_ext/plan_route.py find_light_spots.py   # C7
     embeddings.py rag.py                     # DP14(구현됨): 임베딩 채널 · Chroma 색인 + search_places
+    routing.py                               # DP17(구현됨): OSM 보행망 위 경로 3가지 plan_route
   backend/                  # C4 신설
     main.py  api/chat.py api/tools.py api/health.py
     trace.py                # Tracer: langfuse | jsonl
-  scripts/01_csv_to_parquet.py 02_build_vector_db.py 03_eval_search_places.py   (예정: fetch_osm · snap_trees · ingest_light_docs)
-  data/ (raw csv · processed/ parquet · eval/search_places.jsonl · chroma/<채널>/ · osm/)
-  tests/test_tools.py test_router.py test_api.py test_rag.py   # LLM·임베딩 모델 없이 돌아가야 함
+  scripts/01_csv_to_parquet.py 02_build_vector_db.py 03_eval_search_places.py 04_fetch_osm.py 05_snap_trees.py
+  data/ (raw csv · processed/ parquet · eval/ · chroma/<채널>/ · osm/)      (예정: ingest_light_docs)
+  tests/test_tools.py test_router.py test_api.py test_rag.py test_routing.py   # LLM·임베딩·도로망 없이 돌아가야 함
   docs/BE_DESIGN.md DECISIONS.md
   requirements.txt          # + fastapi uvicorn sse-starlette httpx pyarrow langgraph-checkpoint-sqlite langfuse
 ```
@@ -189,7 +191,13 @@ Rushhour/
 | DP13 | 같은 thread 다음 질문 | `new_turn_input`으로 턴 상태 리셋, visited 리듀서 `_add_or_reset` |
 | DP14 | 벡터DB·임베딩·search_places | Chroma (구,노선) 문서, 채널 5종 + 서명 검사, hash IDF, size_weight 0.02, eval 18건 |
 | DP15 | 장소 해소(places 노드) | 자치구가 아닌 장소는 벡터DB로 자치구를 정한 뒤 기존 경로. 해석을 답변에 밝힘 |
-| DP16 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
+| DP16 | 검색 결과 신뢰 | 출발·도착은 질의와 표기가 겹칠 때만 채택. 유사도 임계값은 채널 의존이라 안 씀 |
+| DP17 | 경로 3가지 | OSM 보행망 + 가중치 3종. 계절이 대안을 정함. 약속 못 지키는 대안은 뺌 |
+| DP19 | 도보 기준 | 도로 종류별 도보 계수로 체감 길이를 만들어 푼다. 시간·큰길 비율도 답변에 |
+| DP20 | 지도 선 | 나무 좌표 근사 직선 → 실제 보행 도로 형상. overview는 캐시 |
+| DP21 | 밑그림 타일 | Esri는 서울 z16부터 빈 타일 → OSM 표준 + CSS 톤 필터(키 불필요, 카카오 톤) |
+| DP22 | 경로 보행성 검증 | 12개 조합 자동차전용 0%, 한강도 보행로로 건넘. 단풍 경로만 간선 비율 높음 |
+| DP18 | 조명 스팟 임계값 | eval 질의로 분포 확인 후. 데모 질의로 맞추지 않음 (C7, 미정) |
 
 ## 8. 작업 순서와 분담 제안 (초안의 A/B/C 유지)
 

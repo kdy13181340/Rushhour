@@ -50,6 +50,14 @@ try:                       # 벡터DB 검색(DP14). chromadb·인덱스가 없�
 except Exception:          # noqa: BLE001
     search_places = None
 
+try:                       # 도로망 경로(DP17). osmnx 산출물이 없으면 회랑 방식으로 폴백한다
+    from routing import osm_ready, plan_route
+except Exception:          # noqa: BLE001
+    plan_route = None
+
+    def osm_ready() -> bool:
+        return False
+
 # 무한 루프 방지 — supervisor를 몇 번까지 지날 수 있는지 (week6 MAX_HOPS=8과 같은 장치).
 # 정상 경로 최대: season·intake·researcher·light·resolver → supervisor 5회 + 여유.
 # (제보 등록/HITL은 팀 결정으로 범위에서 제외함 — DECISIONS DP8)
@@ -174,7 +182,9 @@ OUTSIDE_SEOUL_WORDS = ("부산", "해운대", "대구", "인천", "광주", "대
                        "수원", "성남", "고양", "용인", "분당", "일산", "제주", "강릉", "속초", "전주",
                        "경주", "춘천", "천안", "청주", "창원", "포항", "여수", "순천", "김해", "양양")
 SUPERLATIVE_WORDS = ("가장", "제일", "최고", "최대", "best", "베스트", "1등", "하나만", "딱 한")
-ROUTE_WORDS = ("가는 길", "가는길", "경로", "까지", "->", "→", "거쳐")
+# '가는 길'뿐 아니라 '가는데'·'갈 때'도 경로 질문이다. 자치구 2개가 함께 있어야 발동하므로
+# 낱말만으로 오탐이 나지는 않는다(rule_intake).
+ROUTE_WORDS = ("가는", "갈 때", "갈때", "경로", "까지", "->", "→", "거쳐", "지나서", "들러")
 
 
 def _districts_in_order(text: str) -> list[str]:
@@ -334,23 +344,43 @@ def researcher_node(state: RouteState) -> dict:
 
 # ── route (출발→도착 회랑 경유 테마길) ────────────────────────────────────────
 def route_node(state: RouteState) -> dict:
-    """출발→도착 회랑 위의 테마 가로수길을 조회.  (route_theme_streets 도구)
+    """출발→도착. 도로망이 있으면 **경로 3가지**(최단·테마 경유·회피), 없으면 회랑 방식.  [DP17]
 
-    researcher_node와 같은 폴백 ③ — 도구 예외는 verdict='no_data' + hits.tool_error 로 넘긴다(DP10 보강).
+    plan_route는 실제 보행 도로망 위의 경로라 '어느 길로 걸어라'를 답할 수 있다.
+    도로망 산출물(scripts/04·05)이 없으면 route_theme_streets(직선 회랑 주변 도로)로 폴백한다 —
+    준비가 안 된 PC에서도 답은 나와야 한다.
+    researcher_node와 같은 폴백 ③ — 도구 예외는 verdict='no_data' + hits.tool_error(DP10 보강).
     """
-    base = {"theme": state["theme"], "origin": state.get("origin") or "", "dest": state.get("dest") or ""}
-    res = {"ok": False, "reason": "경로 조회 실패"}
-    try:
-        # 짧거나 데이터가 성긴 회랑 대응: 기본 폭(500m)에서 나무가 없으면 넓혀 재시도.
-        # 좌표 해소 실패는 폭과 무관하므로 즉시 중단(불필요한 재호출 방지).
-        for width in (500, 900, 1500):
-            res = route_theme_streets.invoke({**base, "width_m": width})
-            if res.get("ok") or "해석 못함" in (res.get("reason") or ""):
-                break
-    except Exception as exc:  # noqa: BLE001
-        print(f"  [route 폴백] 도구 실패({type(exc).__name__}) → no_data")
-        res = {"ok": False, "reason": f"도구 오류 {type(exc).__name__}: {str(exc)[:120]}",
-               "tool_error": type(exc).__name__}
+    origin, dest = state.get("origin") or "", state.get("dest") or ""
+    theme = state.get("theme", "unknown")
+    res = None
+    if plan_route is not None and osm_ready():
+        try:
+            res = plan_route.invoke({"origin": origin, "dest": dest,
+                                     "season": state.get("season", ""),
+                                     "theme": theme if theme in THEMES else ""})
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [route 폴백] 경로 탐색 실패({type(exc).__name__}) → 회랑 방식")
+            res = None
+        if res is not None and not res.get("ok"):
+            print(f"  [route] 경로 탐색 실패({res.get('reason')}) → 회랑 방식")
+            res = None
+    if res is None:                       # 도로망 없음·탐색 실패 → 회랑 방식(테마가 있어야 함)
+        if theme not in THEMES:
+            return {"hits": {"ok": False, "reason": "도로망이 준비되지 않아 경로를 찾지 못했어요"},
+                    "verdict": "no_data", "visited": ["route"]}
+        try:
+            # 짧거나 데이터가 성긴 회랑 대응: 기본 폭(500m)에서 나무가 없으면 넓혀 재시도.
+            # 좌표 해소 실패는 폭과 무관하므로 즉시 중단(불필요한 재호출 방지).
+            for width in (500, 900, 1500):
+                res = route_theme_streets.invoke({"theme": theme, "origin": origin,
+                                                  "dest": dest, "width_m": width})
+                if res.get("ok") or "해석 못함" in (res.get("reason") or ""):
+                    break
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [route 폴백] 도구 실패({type(exc).__name__}) → no_data")
+            res = {"ok": False, "reason": f"도구 오류 {type(exc).__name__}: {str(exc)[:120]}",
+                   "tool_error": type(exc).__name__}
     verdict = "match" if res.get("ok") else "no_data"
     return {"hits": res, "verdict": verdict, "visited": ["route"]}
 
@@ -368,6 +398,7 @@ RESOLVER_PROMPT = (
     "한국어로 간결히 답하라. 도구결과에 없는 도로명·수치를 지어내지 마라.\n"
     "- mode가 'prefer'면 추천 길로, 'avoid'면 '피하는 게 좋은 길'로 설명한다.\n"
     "- 도구결과가 '경로=A→B'면, 'A에서 B 가는 길에 ~ 가로수길을 지나요'로 서술한다.\n"
+    "- '대안 N가지'가 있으면 **각각을 한 줄씩** 거리·우회율·지나는 길로 소개한다. 고르라고 권한다.\n"
     "- '장소해소'가 있으면 그 장소를 어느 자치구·도로로 알아들었는지 한 문장으로 먼저 밝힌다.\n"
     "- 테마가 '은행회피'면, 데이터에 암나무가 일부만 라벨링되어 있어 '근사'임을 한 문장 밝혀라.\n"
     "- 답 끝에 계절 정보를 덧붙여라. 요청 테마가 지금 계절({season_label})과 다르면 그 점도 한 문장.\n\n"
@@ -390,6 +421,20 @@ def _place_line(state: RouteState) -> str:
 def _compact_hits(hits: dict, place_line: str = "") -> str:
     """LLM에는 도로명·그루수만 간결히 전달(좌표 center/focus/bbox는 UI 전용이라 제외)."""
     lines = "\n".join(f"  - {s['구']} {s['노선']}: {s['그루수']}그루" for s in hits.get("streets", []))
+    if hits.get("kind") == "route_plan":
+        lines = []
+        for r in hits.get("routes", []):
+            extra = ""
+            if r.get("theme"):
+                extra = (f" / {r['theme']} {r.get('theme_trees', 0)}그루"
+                         f"(최단으로 가면 {r.get('base_trees', 0)}그루)")
+            lines.append(f"  - [{r['label']}] {r['distance_m']}m 걸어서 약 {r.get('minutes', 0)}분, "
+                         f"가장 빠른 길 대비 +{r['detour_pct']}%, 큰길 아닌 길 "
+                         f"{round(r.get('walk_share', 0) * 100)}%"
+                         f"{extra} / 지나는 길: {', '.join(r.get('streets', [])) or '이름 없는 길'}")
+        return (f"{place_line}경로={hits.get('origin_name','')}→{hits.get('dest_name','')} "
+                f"계절={hits.get('season','')}\n비고={hits.get('note','')}\n대안 {len(lines)}가지:\n"
+                + "\n".join(lines))
     if hits.get("kind") == "route":
         return (f"{place_line}경로={hits['origin']}→{hits['dest']} 테마={hits['theme']} 방식={hits['mode']} "
                 f"계절={hits['season']} 회랑±{hits.get('width_m', 500)}m 총={hits['total_trees']}그루\n"
@@ -401,6 +446,20 @@ def _compact_hits(hits: dict, place_line: str = "") -> str:
 def template_answer(state: RouteState) -> str:
     """LLM 없이 도구 결과만으로 만드는 안내문(폴백 ②). 도구가 준 사실만 쓴다."""
     hits = state["hits"]
+    if hits.get("kind") == "route_plan":
+        head = f"{hits.get('origin_name','')} → {hits.get('dest_name','')} 경로 {len(hits['routes'])}가지:"
+        rows = []
+        for i, r in enumerate(hits["routes"]):
+            tail = ""
+            if r.get("theme"):
+                verb = "피함" if r["kind"] == "avoid" else "지남"
+                tail = (f", {r['theme']} {r.get('theme_trees', 0)}그루 {verb}"
+                        f"(최단은 {r.get('base_trees', 0)}그루)")
+            detour = f" (+{r['detour_pct']}%)" if r["detour_pct"] else ""
+            rows.append(f"{'①②③'[i]} {r['label']} {r['distance_m']:,}m·약 {r.get('minutes', 0)}분"
+                        f"{detour}{tail}"
+                        f" — {', '.join(r.get('streets', [])[:3]) or '이름 없는 길'}")
+        return head + " " + " / ".join(rows) + f" {hits.get('note', '')}"
     spec = THEMES[hits["theme"]]
     top = ", ".join(f"{s['구']} {s['노선']}({s['그루수']}그루)" if hits.get("kind") == "route"
                     else f"{s['노선']}({s['그루수']}그루)" for s in hits["streets"][:3])
@@ -425,6 +484,9 @@ def resolver_node(state: RouteState) -> dict:
     """최종 답변 생성 또는 정직한 거절.  [DP3]"""
     theme = state.get("theme", "unknown")
     verdict = state.get("verdict")
+    # 경로 3가지는 테마 없이도 성립한다(계절이 정함) — 테마 판별불가로 거절하면 안 된다(DP17)
+    route_ok = bool((state.get("hits") or {}).get("ok")
+                    and (state.get("hits") or {}).get("kind") == "route_plan")
     # 0) 서울 밖 지역 → 막지 않고 서울 대안을 제안 (데이터는 서울만)
     if verdict == "outside_seoul" or state.get("outside_seoul"):
         if theme in THEMES:
@@ -436,7 +498,7 @@ def resolver_node(state: RouteState) -> dict:
                    "은행단풍·메타세쿼이아)로 물어봐 주세요.")
         return {"final_answer": msg, "resolver_mode": "refuse", "visited": ["resolver"]}
     # 1) 테마 판별 불가 → 무엇을 해줄 수 있는지 친절히 제안 (지금 시기 테마를 먼저)
-    if verdict == "unknown_intent" or theme == "unknown":
+    if (verdict == "unknown_intent" or theme == "unknown") and not route_ok:
         now = themes_for_season(state.get("season", ""))
         menu = " · ".join(THEMES[k]["label"] for k in now + [k for k in THEMES if k not in now])
         head = ""
@@ -506,11 +568,12 @@ def route_from_supervisor(s: RouteState) -> Next:
     if (s.get("place") and not s.get("district") and s.get("place_hits") is None
             and not (s.get("origin") and s.get("dest"))):
         return "places"
+    # 출발·도착이 있으면 테마를 못 잡았어도 경로로 간다 — 3가지 대안은 계절이 정한다(DP17).
+    if s.get("hits") is None and s.get("origin") and s.get("dest"):
+        return "route"
     if s["theme"] == "unknown":
         return "resolver"                                 # 그래도 못 잡으면 친절 안내
     if s.get("hits") is None:
-        if s.get("origin") and s.get("dest"):
-            return "route"                                # 출발·도착 둘 다 → 회랑 경유 추천
         return "researcher"
     if s["season"] == "winter" and s.get("light_spots") is None:
         return "light"

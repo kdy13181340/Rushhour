@@ -6,7 +6,7 @@
 질의 파일 한 줄: {"q": 질의, "expect": [[구, 노선], ...](정답 후보), "kind": lexical|semantic, "note": ...}
   lexical  = 질의와 문서의 표기가 겹침(동네·노선명) — 해시 채널도 잡아야 함
   semantic = 표기가 안 겹치고 의미로만 이어짐 — 진짜 임베딩 모델이 필요한 부분
-데모 질의에 맞춰 임계값을 손보지 않는다(BE_DESIGN DP16의 원칙). 결과는 DECISIONS.md DP14에 기록.
+데모 질의에 맞춰 임계값을 손보지 않는다(BE_DESIGN DP18의 원칙). 결과는 DECISIONS.md DP14에 기록.
 """
 
 import argparse
